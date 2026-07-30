@@ -660,7 +660,16 @@ class AironeDevice:
     # -- 공기질 ------------------------------------------------------------
 
     def set_air_sensors(self, airs: list[dict[str, Any]]) -> list[str]:
-        """`/air-sensor` 응답을 반영하고, 모르는 종류를 돌려준다."""
+        """`/air-sensor` 응답을 반영하고, 모르는 종류를 돌려준다.
+
+        **덮어쓰지 않고 겹쳐 쓴다.** 상태 응답과 같은 이유다 (`apply_reported`).
+        공기질은 5분마다 다시 읽는데, 한 번 비어서 오거나 일부 항목만 오면
+        **그때마다 센서가 「알 수 없음」으로 빠진다.** 에어모니터가 잠깐 끊기거나
+        서버가 한 번 거르면 그렇게 된다.
+
+        빈 응답으로는 아무것도 지우지 않는다. 오래된 값이 남는 것이
+        전부 사라지는 것보다 낫다.
+        """
         unknown: list[str] = []
         table: dict[str, dict[str, Any]] = {}
         for item in airs:
@@ -675,8 +684,16 @@ class AironeDevice:
                 unknown.append(kind)
                 continue
             table[kind] = item
-        self.air_sensors = table
-        self.sensor_kinds = tuple(k for k in AIRONE_SENSOR_KINDS if k in table)
+
+        if not table:
+            # 빈 응답이 이미 받은 값을 지우게 하지 않는다.
+            _LOGGER.debug("공기질 응답이 비어 있어 앞서 받은 값을 유지합니다")
+            return unknown
+
+        merged = dict(self.air_sensors)
+        merged.update(table)
+        self.air_sensors = merged
+        self.sensor_kinds = tuple(k for k in AIRONE_SENSOR_KINDS if k in merged)
         return unknown
 
     # -- 제어 --------------------------------------------------------------
