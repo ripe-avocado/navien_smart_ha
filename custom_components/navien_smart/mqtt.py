@@ -133,6 +133,7 @@ class NavienSmartMqtt:
         self,
         hass: HomeAssistant,
         home_seq: int,
+        user_seq: int,
         topic_prefixes: set[str],
         credentials_provider: Callable[[], Awaitable[AwsCredentials | None]],
         on_reported: Callable[[str, dict[str, Any]], None],
@@ -140,6 +141,7 @@ class NavienSmartMqtt:
     ) -> None:
         self._hass = hass
         self._home_seq = home_seq
+        self._user_seq = user_seq
         self._prefixes = topic_prefixes or {"mate"}
         self._credentials_provider = credentials_provider
         self._on_reported = on_reported
@@ -235,7 +237,10 @@ class NavienSmartMqtt:
 
         import paho.mqtt.client as mqtt  # 지연 임포트 — HA 부팅을 막지 않는다
 
-        client_id = f"{uuid.uuid4()}-U{self._home_seq}"
+        # 앱이 쓰는 형식과 맞춘다 — `{uuid}-U{userSeq}`.
+        # `homeSeq` 를 쓰던 것을 고쳤다. A/B 로 확인했을 때 둘 다 구독은 됐지만,
+        # 서버 정책이 나중에 clientId 를 보게 되면 앱과 다른 쪽이 먼저 막힌다.
+        client_id = f"{uuid.uuid4()}-U{self._user_seq}"
         try:
             client = mqtt.Client(
                 mqtt.CallbackAPIVersion.VERSION2,
@@ -280,7 +285,15 @@ class NavienSmartMqtt:
     def _on_message(self, _client: Any, _userdata: Any, message: Any) -> None:
         result = extract_reported(message.payload, message.topic)
         if result is None:
+            # 버린 이벤트도 남긴다. 이게 없어서 "상태가 안 온다" 와 "와도 버린다" 를
+            # 구별하지 못해 디버깅이 길어졌다.
+            _LOGGER.debug("MQTT 이벤트 무시 (reported 없음): %s", message.topic)
             return
         device_id, reported = result
+        _LOGGER.debug(
+            "MQTT reported 수신: %s heater=%s",
+            device_id,
+            reported.get("heater"),
+        )
         # paho 스레드에서 HA 상태를 직접 건드리면 안 된다.
         self._hass.loop.call_soon_threadsafe(self._on_reported, device_id, reported)

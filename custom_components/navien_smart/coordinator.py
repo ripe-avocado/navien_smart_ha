@@ -192,9 +192,11 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             _LOGGER.debug("구독할 기기가 없어 MQTT 를 시작하지 않습니다")
             return
 
+        session = self.api.session
         self._mqtt = NavienSmartMqtt(
             self.hass,
             home_seq=self.home_seq,
+            user_seq=session.user_seq if session else self.home_seq,
             topic_prefixes=prefixes,
             credentials_provider=self._async_aws_credentials,
             on_reported=self._handle_reported,
