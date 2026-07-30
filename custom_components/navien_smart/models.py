@@ -316,12 +316,22 @@ class NavienDevice:
     def service_name(self) -> str:
         return SERVICE_NAMES.get(self.service_code, str(self.service_code))
 
-    def build_heater_desired(self, changes: dict[str, float]) -> dict[str, Any]:
+    def build_heater_desired(
+        self,
+        changes: dict[str, float] | None = None,
+        enables: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
         """`heater` desired 를 만든다.
 
         앱은 바뀌지 않은 구역까지 현재값을 함께 보낸다. shadow 병합에 기대지 않고
         같은 방식을 따른다 — 실측으로 검증한 형태다.
+
+        `enables` 로 구역별 `enable` 을 덮어쓸 수 있다. `enable: true` 는 실측으로
+        검증했으나 **`false` 는 검증하지 않았다** — 온도형 기기가 없어 확인할 수
+        없었다.
         """
+        changes = changes or {}
+        enables = enables or {}
         if self.is_cooling:
             # 냉방 값 체계가 확인되지 않았다. 추측해서 보내지 않는다.
             raise ValueError(
@@ -338,11 +348,12 @@ class NavienDevice:
             if value is None:
                 continue
             number: Any = int(value) if control.is_level else float(value)
-            enabled = self.zone_enabled(zone)
-            heater[zone] = {
-                "enable": True if enabled is None else enabled,
-                axis: {"set": number},
-            }
+            if zone in enables:
+                enabled = enables[zone]
+            else:
+                current = self.zone_enabled(zone)
+                enabled = True if current is None else current
+            heater[zone] = {"enable": enabled, axis: {"set": number}}
         if not heater:
             raise ValueError("보낼 구역 값이 없습니다.")
         return heater

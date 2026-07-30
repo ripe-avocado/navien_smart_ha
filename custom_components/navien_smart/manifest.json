@@ -1,12 +1,16 @@
 {
   "domain": "navien_smart",
   "name": "Navien Smart",
-  "codeowners": ["@ripe-avocado"],
+  "codeowners": [
+    "@ripe-avocado"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/ripe-avocado/navien_smart_ha",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/ripe-avocado/navien_smart_ha/issues",
-  "requirements": ["paho-mqtt>=1.6.1"],
-  "version": "0.1.0"
+  "requirements": [
+    "paho-mqtt>=1.6.1"
+  ],
+  "version": "0.2.0"
 }
