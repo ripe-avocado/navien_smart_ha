@@ -129,8 +129,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         if service_code in REPORT_WANTED_SERVICE_CODES:
             _LOGGER.warning(
                 "%s 를 찾았습니다 (modelName=%s). 아직 지원하지 않습니다 — %s. "
-                "지원을 원하시면 설정 → 기기 및 서비스 → 나비엔 스마트 → ⋮ → "
-                "'진단 정보 다운로드' 로 받은 파일을 이슈에 붙여 주세요. "
+                "지원을 원하시면 설정 → 기기 및 서비스 → 나비엔 스마트 → "
+                "⋮ 메뉴의 '통계정보 다운로드'(진단 파일) 를 이슈에 붙여 주세요. "
                 "기기ID·IP·MAC·별칭은 자동으로 가려집니다.",
                 name,
                 raw.get("modelName"),
