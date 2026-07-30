@@ -348,11 +348,20 @@ class NavienDevice:
             if value is None:
                 continue
             number: Any = int(value) if control.is_level else float(value)
+
             if zone in enables:
                 enabled = enables[zone]
+            elif control.is_level and zone in changes:
+                # 단계형은 `level 0` 과 `enable false` 가 함께 움직인다 — 실측 확인.
+                # 앱 슬라이더의 맨 왼쪽 `운전 대기` 가 이 상태다.
+                #
+                # **바꾸는 구역에만 적용한다.** `zone in changes` 조건이 없으면,
+                # 한쪽을 대기로 내릴 때 반대쪽 `enable` 까지 덮어써서 같이 꺼진다.
+                enabled = number > 0
             else:
                 current = self.zone_enabled(zone)
                 enabled = True if current is None else current
+
             heater[zone] = {"enable": enabled, axis: {"set": number}}
         if not heater:
             raise ValueError("보낼 구역 값이 없습니다.")

@@ -21,10 +21,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
-    # 온도형(`0.5C`)은 climate, 단계형(`1.0L`)은 number 로 갈린다. 둘 다 등록하고
+    # 온도형(`0.5C`)은 climate, 단계형(`1.0L`)은 select 로 갈린다. 둘 다 등록하고
     # 각 플랫폼이 자기 축의 기기만 골라 간다.
     Platform.CLIMATE,
-    Platform.NUMBER,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
 ]

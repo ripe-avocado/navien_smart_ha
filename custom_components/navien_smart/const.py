@@ -169,6 +169,18 @@ SEASON_NAMES: Final = {SEASON_WINTER: "난방", SEASON_SUMMER: "냉방"}
 CAPACITY_SINGLE: Final = 1
 CAPACITY_DOUBLE: Final = 2
 
+# --- 단계형 제어 표기 ---------------------------------------------------
+
+# 0은 숫자가 아니라 상태다. 앱 슬라이더의 맨 왼쪽이 이것이고, 서버가 알려주는
+# `heatControl.rangeMin` (실측 1) 보다 낮다. `level 0` + `enable false` 로 함께 온다.
+LEVEL_STANDBY: Final = 0
+LABEL_STANDBY: Final = "운전 대기"
+
+
+def level_label(level: int) -> str:
+    """단계 값을 앱과 같은 말로 옮긴다."""
+    return LABEL_STANDBY if level == LEVEL_STANDBY else f"{level}단계"
+
 # --- 설정 키 --------------------------------------------------------------
 
 CONF_HOME_SEQ: Final = "home_seq"
