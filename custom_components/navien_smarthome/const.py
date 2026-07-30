@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Final
 
-DOMAIN: Final = "navien_smart"
+DOMAIN: Final = "navien_smarthome"
 
 # --- 엔드포인트 ------------------------------------------------------------
 

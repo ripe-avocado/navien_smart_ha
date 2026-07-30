@@ -62,10 +62,10 @@ body:
         ```yaml
         logger:
           logs:
-            custom_components.navien_smart: debug
+            custom_components.navien_smarthome: debug
         ```
 
-        설정 → 시스템 → 로그 에서 `navien_smart` 부분을 붙여 주세요.
+        설정 → 시스템 → 로그 에서 `navien_smarthome` 부분을 붙여 주세요.
       render: shell
     validations:
       required: false

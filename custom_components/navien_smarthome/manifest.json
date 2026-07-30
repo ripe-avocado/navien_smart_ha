@@ -1,5 +1,5 @@
 {
-  "domain": "navien_smart",
+  "domain": "navien_smarthome",
   "name": "Navien Smart",
   "codeowners": [
     "@ripe-avocado"
@@ -12,5 +12,5 @@
   "requirements": [
     "paho-mqtt>=1.6.1"
   ],
-  "version": "0.4.6"
+  "version": "0.5.0"
 }
