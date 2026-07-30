@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 from .const import (
     AIRONE_HUMIDITY_TYPE,
@@ -25,6 +25,7 @@ from .const import (
     AIRONE_OPTION_NONE,
     AIRONE_OPTION_SLEEP,
     AIRONE_OPTIONS_WITH_WIND,
+    AIRONE_RUN_AWAY,
     AIRONE_RUN_NAMES,
     AIRONE_RUN_OFF,
     AIRONE_RUN_ON,
@@ -54,6 +55,32 @@ def _as_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+# `running` 이 정수로 오는 것은 확인했다. 다만 서버가 기기·펌웨어에 따라 참/거짓이나
+# 문자열로 줄 수도 있어 그때도 읽는다 — **읽기 쪽만 넓힌다.** 보낼 때는 정수만 쓴다.
+_RUNNING_TEXT: Final = {
+    "on": AIRONE_RUN_ON, "run": AIRONE_RUN_ON, "running": AIRONE_RUN_ON,
+    "true": AIRONE_RUN_ON, "y": AIRONE_RUN_ON, "yes": AIRONE_RUN_ON,
+    "off": AIRONE_RUN_OFF, "stop": AIRONE_RUN_OFF, "stopped": AIRONE_RUN_OFF,
+    "false": AIRONE_RUN_OFF, "n": AIRONE_RUN_OFF, "no": AIRONE_RUN_OFF,
+    "away": AIRONE_RUN_AWAY, "out": AIRONE_RUN_AWAY,
+}
+
+
+def _as_running(value: Any) -> int | None:
+    """운전 상태 값을 정수로. 참/거짓과 문자열도 받는다."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return AIRONE_RUN_ON if value else AIRONE_RUN_OFF
+    if (number := _as_int(value)) is not None:
+        # 0 을 「정지」로 본다. 서버가 쓰는 것은 1/2/3 이지만 0 을 주는 기기가 있어도
+        # 「알 수 없음」보다 「정지」가 맞다 — 운전 중이면 1 이 온다.
+        return AIRONE_RUN_OFF if number == 0 else number
+    if isinstance(value, str):
+        return _RUNNING_TEXT.get(value.strip().lower())
+    return None
 
 
 def as_number(value: Any) -> float | None:
@@ -339,9 +366,9 @@ class AironeDevice:
 
         방 컨트롤러를 먼저 본다. 사용자가 만지는 것이 그쪽이다.
         """
-        value = _as_int(self._controller.get("running"))
+        value = _as_running(self._controller.get("running"))
         if value is None:
-            value = _as_int(self._odu.get("running"))
+            value = _as_running(self._odu.get("running"))
         return value
 
     @property

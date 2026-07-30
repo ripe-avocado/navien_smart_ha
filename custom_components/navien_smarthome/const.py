@@ -192,18 +192,44 @@ AIRONE_LEVEL_NAMES: Final = {
     4: "매우나쁨",
 }
 
-# 서버가 라돈 키를 다른 이름으로 줄 수 있다는 정황이 있어 별칭을 받아둔다.
-# 표준 이름으로 모아 하나의 센서로 만든다.
+# 서버가 같은 센서를 다른 이름으로 줄 수 있다. 소문자로 맞춘 뒤 이 표로 모은다.
+#
+# **키를 기계적으로 정규화하면 안 된다.** 구분기호를 지우면 `pm1.0` 이 `pm10` 이
+# 되어 **다른 센서와 충돌한다** — PM1.0 과 PM10 은 별개 항목이다. 그래서 규칙을
+# 만들지 않고 명시 표로 둔다.
 AIRONE_SENSOR_ALIASES: Final = {
+    # 대소문자만 다른 표준 이름
+    "pm1dot0": "pm1Dot0",
+    "pm2dot5": "pm2Dot5",
+    # 미세먼지 — `pm1` 계열과 `pm10` 을 섞지 않도록 하나씩 적는다
+    "pm1": "pm1Dot0",
+    "pm1.0": "pm1Dot0",
+    "pm1_0": "pm1Dot0",
+    "pm25": "pm2Dot5",
+    "pm2.5": "pm2Dot5",
+    "pm2_5": "pm2Dot5",
+    # 라돈
     "radonvalue": "radon",
     "radon_value": "radon",
     "radonbq": "radon",
     "radonbqm3": "radon",
-    "pm1": "pm1Dot0",
-    "pm1.0": "pm1Dot0",
-    "pm25": "pm2Dot5",
-    "pm2.5": "pm2Dot5",
+    "radonstagevalue": "radon",
+    "radon_stage_value": "radon",
+    "radonconcentration": "radon",
+    "radon_concentration": "radon",
+    # 휘발성유기화합물
+    "voc": "tvoc",
+    "t_voc": "tvoc",
+    "tvocvalue": "tvoc",
+    # 종합 공기질
+    "airquality": "total",
+    "air_quality": "total",
     "airqualityscore": "total",
+    "air_quality_score": "total",
+    "totalairquality": "total",
+    # 그 밖
+    "co2value": "co2",
+    "carbondioxide": "co2",
 }
 
 # `/air-sensor` 의 `airs[].type` — 문자열이다. `SensorDid.type` 의 정수와 다른
