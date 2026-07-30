@@ -30,6 +30,7 @@ from .const import (
     AIRONE_OPTION_SLEEP,
     LEGACY_DEFAULT_AIR_VOLUMES,
     LEGACY_EXTRA_FIELDS,
+    LEGACY_MODE_DID,
     AIRONE_OPTIONS_WITH_WIND,
     AIRONE_RUN_AWAY,
     AIRONE_RUN_NAMES,
@@ -337,7 +338,7 @@ class AironeDevice:
             for mode in (AironeMode.parse(item) for item in controller.get("mode") or [])
             if mode is not None
         )
-        modes = cls._restore_legacy_base_modes(modes, raw.get("modelCode"))
+        modes = cls._legacy_modes(modes, raw.get("modelCode"))
 
         # **문자열로 올 수도 있다.** 매트는 `{"mainItem": ..., "side": {...}}` 인데
         # 별칭을 안 나눠 쓰는 계정에서 그냥 이름 하나로 오는 경우를 배제할 근거가
@@ -393,42 +394,66 @@ class AironeDevice:
     # -- 상태 반영 ----------------------------------------------------------
 
     @staticmethod
-    def _restore_legacy_base_modes(
+    def _legacy_modes(
         modes: tuple[AironeMode, ...], model_code: Any
     ) -> tuple[AironeMode, ...]:
-        """구세대 DID 가 생략한 기본 조합을 되살린다.
+        """구세대 모드 목록을 앱과 같게 만든다.
 
-        구세대는 변형(터보·절전·숙면)만 싣고 `option 1` 자리와
-        `supportedAirVolumes` 를 주지 않는다 — 실기기(NRT-20DSW) 확인. 그대로 두면
-        `selectable_modes` 가 대표 조합으로 터보를 골라 「환기」가 터보로 나가고,
-        `fan_choices` 는 미풍·약풍·강풍을 만들지 못한다.
+        **처음에는 DID 를 능력 목록으로 봤고 그것이 틀렸다.** 앱은 구세대에서
+        DID 를 아예 보지 않는다 — `modelCode < 1000` 이면
+        `loadlegacyModeDataFromFile()` 로 앱에 내장된 파일을 읽어 모드 목록으로 쓴다
+        (`AirOneControlViewModel`). 그 내용이 `LEGACY_MODE_DID` 다.
 
-        **능력을 지어내지 않는다.** 서버가 알려준 모드 코드에 대해서만, 앱이 모든
-        에어원에 쓰는 풍량 표를 붙여 기본 자리를 채운다.
+        확인 경로는 이랬다. 두 기기(`NRT-20DS`·`NRT-20DSW`)의 앱 화면에 모드가
+        여섯 개인데 DID 에는 그만큼이 없었다. **DID 로 목록을 만들면 앱보다 적게
+        나온다** — 자동운전과 요리가 빠졌다.
+
+        그래서 앱 파일을 기준으로 하고 **DID 가 준 것을 위에 얹는다.** DID 항목은
+        그 기기의 실제 값이므로 기본 풍량 같은 것은 DID 쪽이 정확하다.
         """
         code = _as_int(model_code)
-        if code is None or code >= AIRONE_V2_MIN_MODEL_CODE or not modes:
+        if code is None or code >= AIRONE_V2_MIN_MODEL_CODE:
             return modes
 
         have = {(item.mode, item.option) for item in modes}
-        restored = list(modes)
-        # **서버가 알려준 코드에만** 기본 자리를 만든다. 확인한 기기가 한 대뿐이라
-        # 다른 모델까지 같은 모드를 지원한다고 볼 근거가 없다.
-        for mode_code in dict.fromkeys(item.mode for item in modes):
-            if (mode_code, AIRONE_OPTION_NONE) in have:
+        merged = list(modes)
+        for mode_code, option, air_volume in LEGACY_MODE_DID:
+            if (mode_code, option) in have:
                 continue
-            restored.append(
+            merged.append(
                 AironeMode(
                     mode=mode_code,
-                    option=AIRONE_OPTION_NONE,
-                    air_volume=None,
-                    supported_air_volumes=LEGACY_DEFAULT_AIR_VOLUMES,
-                    configurable=True,
+                    option=option,
+                    air_volume=air_volume,
+                    # 기본 조합에서만 풍량을 고를 수 있다. 터보·절전·숙면은
+                    # 옵션 자체가 풍량을 대신한다.
+                    supported_air_volumes=(
+                        LEGACY_DEFAULT_AIR_VOLUMES
+                        if option == AIRONE_OPTION_NONE
+                        else ()
+                    ),
+                    configurable=option == AIRONE_OPTION_NONE,
                     humidity_min=None,
                     humidity_max=None,
                 )
             )
-        return tuple(restored)
+        # DID 가 준 기본 조합에는 `supportedAirVolumes` 가 없다. 그 자리에만 채운다.
+        return tuple(
+            (
+                item
+                if item.option != AIRONE_OPTION_NONE or item.supported_air_volumes
+                else AironeMode(
+                    mode=item.mode,
+                    option=item.option,
+                    air_volume=item.air_volume,
+                    supported_air_volumes=LEGACY_DEFAULT_AIR_VOLUMES,
+                    configurable=True,
+                    humidity_min=item.humidity_min,
+                    humidity_max=item.humidity_max,
+                )
+            )
+            for item in merged
+        )
 
     def apply_reported(self, incoming: dict[str, Any]) -> None:
         """들어온 상태를 **덮어쓰지 않고 겹쳐 쓴다.**
