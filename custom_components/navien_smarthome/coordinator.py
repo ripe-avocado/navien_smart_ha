@@ -152,8 +152,14 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 )
 
             # 이미 받아둔 실시간 상태를 잃지 않는다.
+            #
+            # **기록도 함께 이어받는다.** 기기 객체는 폴링마다 새로 만든다.
+            # 이어받을 것을 빠뜨리면 그 값이 조용히 0 으로 돌아간다 — 진단 기록이
+            # 그렇게 매번 지워지고 있었다(v0.9.5).
             if (old := previous.get(device.device_id)) is not None:
                 device.reported = old.reported
+                device.command_log = old.command_log
+                device.state_log = old.state_log
 
             if device.is_four_season:
                 self._log_four_season(device)
@@ -230,11 +236,21 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             )
 
         # 이미 받아둔 실시간 상태와 공기질을 잃지 않는다.
+        #
+        # **기록과 집계도 함께 이어받는다.** 이걸 빠뜨려서 v0.9.3 에 넣은 공기질
+        # 감지가 통째로 헛돌았다 — 폴링마다 새 객체가 되니 실패 횟수가 3에 닿을
+        # 수 없고, 15분 경고가 **한 번도 울릴 수 없었다.**
         if (old := previous.get(device.device_id)) is not None:
             device.reported = old.reported
             device.air_sensors = old.air_sensors
             device.sensor_kinds = old.sensor_kinds
             device.last_humidity = old.last_humidity
+            device.command_log = old.command_log
+            device.humidity_log = old.humidity_log
+            device.air_sensor_stamp = old.air_sensor_stamp
+            device.air_sensor_empty = old.air_sensor_empty
+            device.air_sensor_errors = old.air_sensor_errors
+            device.air_sensor_unchanged = old.air_sensor_unchanged
 
         self._log_airone_found(device)
         return device
