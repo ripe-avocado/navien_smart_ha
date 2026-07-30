@@ -100,6 +100,9 @@ AIRONE_V2_MIN_MODEL_CODE: Final = 1000
 
 AIRONE_TOPIC_FMT: Final = "cmd/rc/v2/{model_code}/{device_id}/remote/{command}"
 
+# 구세대는 `v2` 조각이 없다 (CHANGELOG 「구형은 건너뛴다」의 토픽 표).
+AIRONE_LEGACY_TOPIC_FMT: Final = "cmd/rc/{model_code}/{device_id}/remote/{command}"
+
 AIRONE_CMD_STATUS: Final = "status"
 AIRONE_CMD_POWER: Final = "power"
 AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
@@ -147,6 +150,74 @@ AIRONE_MODE_NAMES: Final = {
     17: "바이패스",
     18: "음압환기",
 }
+
+# 구세대 DID 는 **변형(option >= 2)만** 싣고 기본 조합(option 1)과
+# `supportedAirVolumes` 를 주지 않는다 — 실기기(NRT-20DSW) 확인. 그대로 두면
+# 「환기」를 고를 때 터보가 함께 나가고 풍량에 미풍·약풍·강풍이 사라진다.
+# 없는 능력을 지어내는 것이 아니라, 서버가 생략한 기본 자리를 되살린다.
+# 풍량 값은 앱 표(`AIRONE_WIND_NAMES`)를 그대로 쓴다.
+LEGACY_DEFAULT_AIR_VOLUMES: Final = (1, 2, 3, 4)
+
+
+# 구세대 상태 프레임이 신형에 없는 값을 더 싣는다. 해석해서 제어에 쓰지 않고
+# 진단 센서로만 보여준다 — 뜻이 확인된 것만 이름을 붙였다.
+# 이름은 앱 표기를 따르고, 뜻이 확인되지 않은 것은 원본 필드명을 괄호에 남긴다 —
+# 값이 이상할 때 어느 필드인지 바로 짚을 수 있어야 한다.
+# (필드, 표시이름, 값 대응표). 대응표가 있으면 숫자 대신 이름을 보여준다 —
+# 앱에서 뽑은 표가 있는 것만이고, **1/2 플래그 체계가 확인되지 않은 항목은
+# 표를 붙이지 않는다.** 추측해서 켜짐·꺼짐을 달면 반대로 보일 수 있다.
+LEGACY_EXTRA_FIELDS: Final = {
+    "radonStageValue": ("radon_stage", "라돈 단계", "level"),
+    "freeFilterUsedTime": ("filter_used_time", "필터 사용 시간", None),
+    "freeFilterCleanAlarmFlag": ("filter_clean_alarm", "필터 청소 알림", None),
+    "hepaFilterCleanAlarmFlag": ("hepa_filter_clean_alarm", "헤파필터 청소 알림", None),
+    "deepSleepMode": ("deep_sleep_mode", "숙면 동작", None),
+    "bypassOperation": ("bypass_operation", "바이패스 동작", None),
+    "connectedSensingBox": ("connected_sensing_box", "센싱박스 연결", None),
+    "supportedOperationMode": ("set_operation_mode", "설정 운전모드", "mode"),
+    "oduOperationMode": ("odu_operation_mode", "실외기 동작모드", "mode"),
+    "desiredAirVolume": ("set_air_volume", "설정 풍량", "wind"),
+    "airVolume": ("actual_air_volume", "실제 풍량", "wind"),
+    "errorState": ("error_state", "오류 상태", "error"),
+}
+
+
+# --- 구세대(에어원 `modelCode < 1000`) 상태 프레임 -------------------------
+#
+# 봉투가 `{topic, payload: {...}, serviceCode}` 이고 **`reported` 도 `roomController`
+# 도 없는 평평한 구조**다. 필드 이름이 신형과 다를 뿐 아니라 **오해를 부른다** —
+# 실기기(NRT-20DSW, modelCode 8)에서 앱으로 바이패스를 걸어놓고 45개 필드를
+# 통째로 비교해 확인했다.
+#
+# | 구세대 필드 | 실제 의미 |
+# | --- | --- |
+# | `supportedOperationMode` | **설정된** 운전모드 (능력 목록이 아니다) |
+# | `oduOperationMode` | 실외기가 **지금 실제로** 도는 모드 (1=정지) |
+# | `desiredAirVolume` | **설정된** 풍량 |
+# | `airVolume` | **실제** 송풍량 (안 불면 0) |
+#
+# 동작값을 읽으면 바이패스가 유령 모드로, 자동운전이 관측 불가로 보인다.
+# 그래서 **설정값을 읽는다.** 동작값은 진단으로만 남긴다.
+LEGACY_STATUS_TO_CONTROLLER: Final = {
+    "supportedOperationMode": "mode",
+    "optionFunction": "option",
+    "desiredAirVolume": "airVolume",
+}
+
+# 동작값. 제어 상태로 쓰지 않고 진단에만 담는다.
+LEGACY_ACTUAL_FIELDS: Final = ("oduOperationMode", "airVolume")
+
+# `running` 값이 신형과 **반대다** (CHANGELOG 「구형은 건너뛴다」). 세대를 안 가리면
+# 전원이 뒤집힌다. 구세대 `isRunning` 2=운전 → 신형 `running` 1=운전 로 맞춘다.
+LEGACY_RUNNING_TO_V2: Final = {2: AIRONE_RUN_ON, 1: AIRONE_RUN_OFF}
+
+# 구세대 명령 봉투. 신형은 `payload.state.desired`, 구세대는 `payload.request` 다.
+LEGACY_CONTROLLER_TO_REQUEST: Final = {
+    "mode": "operationMode",
+    "option": "optionMode",
+    "airVolume": "windLevel",
+}
+LEGACY_RUNNING_TO_REQUEST: Final = {AIRONE_RUN_ON: 2, AIRONE_RUN_OFF: 1}
 
 # `ROOM_OPERATION_OPTION_*`. 이름은 앱 제어화면 문자열
 # (`STR_FRAGMENT_AIRONE_CONTROL_OPTION_*`). 1 은 "옵션 없음" 이라 라벨이 없다.
@@ -414,3 +485,11 @@ UPDATE_INTERVAL_SECONDS: Final = 900
 # 에어원이 있으면 짧게 돈다. 공기질 값은 MQTT 로 오지 않고 `/air-sensor` 를 읽어야
 # 하는데, 15분마다 갱신되는 미세먼지 수치는 쓸 수가 없다. 앱은 60초마다 읽는다.
 AIRONE_UPDATE_INTERVAL_SECONDS: Final = 300
+
+# 진단 값을 사람이 읽는 이름으로 옮기는 표. 위 표들이 정의된 뒤에 둔다.
+LEGACY_VALUE_TABLES: Final = {
+    "mode": AIRONE_MODE_NAMES,
+    "wind": AIRONE_WIND_NAMES,
+    "level": AIRONE_LEVEL_NAMES,
+    "error": {0: "정상"},
+}

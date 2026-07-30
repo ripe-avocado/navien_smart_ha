@@ -22,7 +22,9 @@ from .api import (
     NavienSmartAuthError,
     NavienSmartError,
 )
-from .airone import AironeDevice
+from homeassistant.helpers.storage import Store
+
+from .airone import AironeDevice, _dig
 from .const import (
     AIRONE_AIR_ERROR_LOG_EVERY,
     AIRONE_CMD_CHANGE_MODE,
@@ -94,6 +96,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 에어원은 매트와 상태 체계가 달라 같은 dict 에 섞지 않는다. 검증이 끝난
         # 매트 경로를 건드리지 않는 것이 우선이다.
         self.airone: dict[str, AironeDevice] = {}
+        # 구세대는 `remote/status` 요청에 답하지 않는다. 마지막으로 받은 상태를
+        # 남겨 두었다가 시작할 때 되살린다 — 그러지 않으면 첫 조작 전까지
+        # 전원·모드·풍량이 모두 비어 보인다.
+        self._store: Store = Store(hass, 1, f"{DOMAIN}.airone_state")
+        # 되살린 기기. 진단에서 「지금 값이 복원된 것인지」를 가릴 수 있어야 한다 —
+        # 전원이 「켜짐」으로 보이는데 실제로 꺼져 있을 수 있다.
+        self.restored_devices: set[str] = set()
         # 「상태가 안 온다」와 「와도 못 붙인다」를 진단만으로 가리기 위한 집계.
         # 개인정보는 없다 — 개수와 키 이름뿐이다.
         self.drop_counts: dict[str, int] = {"mate_no_device": 0, "airone_no_device": 0}
@@ -210,16 +219,6 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 raw,
                 f"modelCode '{device.model_code}' 를 숫자로 읽지 못해 세대를 "
                 "가릴 수 없습니다. 이 로그를 제보해 주세요",
-            )
-            self.unsupported.append(raw)
-            return None
-
-        if not device.is_v2_generation:
-            # 레거시 세대는 봉투와 토픽이 전혀 달라 같은 코드로 못 쏜다.
-            self._log_skip(
-                raw,
-                f"modelCode {device.model_code} 는 구세대 통신을 씁니다. "
-                "지금 구현은 신형(modelCode 1000 이상)만 다룹니다",
             )
             self.unsupported.append(raw)
             return None
@@ -527,7 +526,44 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             return
         # **덮어쓰지 않는다.** 명령 응답은 부분 페이로드로 온다 (`apply_reported` 주석).
         device.apply_reported(reported)
+        # 기기가 실제로 올린 값이 왔으니 더 이상 복원값이 아니다.
+        self.restored_devices.discard(device.device_id)
+        self._async_remember_state()
         self.async_set_updated_data(self.data or {})
+
+    def _async_remember_state(self) -> None:
+        """마지막 상태를 남긴다. 실패해도 동작을 막지 않는다."""
+        snapshot = {
+            device_id: device.reported
+            for device_id, device in self.airone.items()
+            if device.reported
+        }
+        if snapshot:
+            self._store.async_delay_save(lambda: snapshot, 5)
+
+    async def async_restore_state(self) -> None:
+        """저장해 둔 마지막 상태를 되살린다.
+
+        **되살린 값은 잠정이다.** 기기가 스스로 올리거나 조작을 하면 바로
+        덮인다. 아무것도 안 보이는 것보다는 마지막으로 알던 값이 낫다.
+        """
+        try:
+            stored = await self._store.async_load()
+        except Exception as err:  # noqa: BLE001 - 저장소 문제로 통합을 막지 않는다
+            _LOGGER.debug("에어원 상태 복원 실패: %s", err)
+            return
+        if not isinstance(stored, dict):
+            return
+        for device_id, reported in stored.items():
+            device = self.airone.get(device_id)
+            if device is not None and isinstance(reported, dict) and not device.reported:
+                device.apply_reported(reported)
+                self.restored_devices.add(device_id)
+        if self.restored_devices:
+            _LOGGER.debug(
+                "에어원 %s대의 마지막 상태를 되살렸습니다. 기기가 새로 올리기 전까지는 "
+                "잠정값입니다", len(self.restored_devices)
+            )
 
     # -- 제어 --------------------------------------------------------------
 
@@ -549,6 +585,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             command=command,
             client_id=client_id,
             desired=desired,
+            # 세대 차이는 전송 계층에서만 흡수한다. 위쪽은 세대를 모른다.
+            legacy=not device.is_v2_generation,
         )
 
     async def async_airone_power(self, device: AironeDevice, turn_on: bool) -> None:

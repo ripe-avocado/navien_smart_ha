@@ -6,11 +6,17 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice, as_number, level_text, text_or_none
-from .const import AIRONE_INFERRED_UNITS, AIRONE_SENSOR_KINDS
+from .const import (
+    AIRONE_INFERRED_UNITS,
+    AIRONE_SENSOR_KINDS,
+    LEGACY_EXTRA_FIELDS,
+    LEGACY_VALUE_TABLES,
+)
 from .coordinator import NavienSmartCoordinator
 from .entity import AironeEntity, AironeMonitorEntity, NavienSmartEntity
 from .models import NavienDevice
@@ -30,6 +36,11 @@ async def async_setup_entry(
     for airone in coordinator.airone.values():
         entities.append(AironeStateSensor(coordinator, airone))
         entities.append(AironeErrorSensor(coordinator, airone))
+        # 구세대만 싣는 값. **상태로 세지 않는다** — 엔티티는 MQTT 가 붙기 전에
+        # 만들어지므로 그때 세면 하나도 안 생긴다 (필터와 같은 이유).
+        if not airone.is_v2_generation:
+            for key, label, table in LEGACY_EXTRA_FIELDS.values():
+                entities.append(AironeLegacySensor(coordinator, airone, key, label, table))
         # 공기질은 서버가 실제로 값을 준 항목만 만든다. 목록을 미리 정하지 않는다.
         #
         # 에어모니터가 등록돼 있으면 **그 기기 카드에** 붙인다. 앱에서도 별도
@@ -255,6 +266,34 @@ class AironeMonitorSensor(_AirSensorMixin, AironeMonitorEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, device, monitor)
         self._setup_air(device, kind, self._monitor_id)
+
+
+class AironeLegacySensor(AironeEntity, SensorEntity):
+    """구세대 상태 프레임이 더 싣는 값.
+
+    뜻이 확인된 것만 이름을 붙였고, 값은 해석하지 않고 그대로 보여준다 —
+    1/2 플래그 체계가 확인되지 않아 켜짐·꺼짐으로 옮기지 않는다.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:code-braces"
+
+    def __init__(self, coordinator, device, key: str, label: str, table: str | None) -> None:
+        super().__init__(coordinator, device)
+        self._key = key
+        self._table = LEGACY_VALUE_TABLES.get(table or "")
+        self._attr_unique_id = f"{device.device_id}_legacy_{key}"
+        self._attr_name = label
+        # 필터 사용 시간의 단위를 확인하지 못했다. 시간인지 분인지 모르는 채로
+        # 「h」 를 붙이면 60배 틀린 값이 그럴듯하게 보인다. 숫자만 둔다.
+
+    @property
+    def native_value(self):
+        value = self.device.legacy_extras.get(self._key)
+        if self._table is None or value is None:
+            return value
+        # 표에 없는 값은 숫자를 그대로 보여준다 — 모르는 값을 숨기지 않는다.
+        return self._table.get(value, value)
 
 
 class AironeFilterSensor(AironeEntity, SensorEntity):

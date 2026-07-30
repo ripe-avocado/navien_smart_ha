@@ -26,7 +26,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util.ssl import get_default_context
 
 from .api import AwsCredentials
-from .const import IOT_ENDPOINT, IOT_REGION, IOT_SERVICE
+from .const import (
+    IOT_ENDPOINT,
+    IOT_REGION,
+    IOT_SERVICE,
+    LEGACY_ACTUAL_FIELDS,
+    LEGACY_EXTRA_FIELDS,
+    LEGACY_RUNNING_TO_V2,
+    LEGACY_STATUS_TO_CONTROLLER,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,6 +159,11 @@ def extract_airone_reported(
 
     inner = event.get("payload")
     reported = inner.get("reported") if isinstance(inner, dict) else None
+    if reported is None and isinstance(inner, dict):
+        # 구세대는 `reported` 겹이 없는 평평한 프레임이다.
+        reported = normalize_legacy_status(inner)
+        if reported is not None:
+            _bump(stats, "legacy_normalized")
     if not isinstance(reported, dict):
         # 명령을 접수했다는 응답일 수 있다. 상태가 아니면 쓰지 않는다.
         _bump(stats, "dropped_no_reported")
@@ -187,6 +200,47 @@ def extract_airone_reported(
         return None
     _bump(stats, "accepted")
     return device_id, reported
+
+
+def normalize_legacy_status(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """구세대 평평한 상태 프레임을 신형 `reported` 모양으로 옮긴다.
+
+    **가장자리에서만 바꾼다.** 모델과 엔티티는 신형 어휘 하나만 알면 되도록
+    두는 편이, 세대마다 분기를 심는 것보다 검증된 신형 경로를 덜 흔든다.
+
+    설정값을 읽는다 — 이유는 `LEGACY_STATUS_TO_CONTROLLER` 위의 표 참조.
+    """
+    if "isRunning" not in payload:
+        return None
+
+    controller: dict[str, Any] = {}
+    running = LEGACY_RUNNING_TO_V2.get(payload.get("isRunning"))
+    if running is not None:
+        controller["running"] = running
+    for source, target in LEGACY_STATUS_TO_CONTROLLER.items():
+        if source in payload:
+            controller[target] = payload[source]
+
+    error_code = payload.get("errorCode")
+    if error_code is not None:
+        controller["error"] = {"code": error_code}
+
+    # 실외기가 실제로 하는 일. 제어 상태로 쓰지 않고 진단에서만 본다 —
+    # 조건에 따라 수시로 바뀌므로 이걸 모드로 읽으면 표시가 요동친다.
+    actual = {key: payload[key] for key in LEGACY_ACTUAL_FIELDS if key in payload}
+    reported: dict[str, Any] = {"roomController": controller}
+    if actual:
+        reported["legacyActual"] = actual
+
+    # 신형에 없는 값들. 해석해서 제어에 쓰지 않고 진단으로만 내보낸다.
+    extras = {
+        key: payload[field]
+        for field, (key, _label, _table) in LEGACY_EXTRA_FIELDS.items()
+        if payload.get(field) is not None
+    }
+    if extras:
+        reported["legacyExtras"] = extras
+    return reported
 
 
 def _bump(stats: dict[str, Any] | None, key: str) -> None:

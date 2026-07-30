@@ -28,6 +28,8 @@ from .const import (
     AIRONE_OPTION_NAMES,
     AIRONE_OPTION_NONE,
     AIRONE_OPTION_SLEEP,
+    LEGACY_DEFAULT_AIR_VOLUMES,
+    LEGACY_EXTRA_FIELDS,
     AIRONE_OPTIONS_WITH_WIND,
     AIRONE_RUN_AWAY,
     AIRONE_RUN_NAMES,
@@ -312,7 +314,13 @@ class AironeDevice:
         if not device_id or device_seq is None or service_code is None:
             return None
 
-        did = _dig(raw, "Properties", "data", "did", "reported") or {}
+        # 구세대는 `did` 아래에 `state` 겹이 하나 더 있다 (실측: NRT-20DSW).
+        # 세대를 따지지 않고 있는 쪽을 쓴다 — 어느 세대든 한 곳에만 들어 있다.
+        did = (
+            _dig(raw, "Properties", "data", "did", "reported")
+            or _dig(raw, "Properties", "data", "did", "state", "reported")
+            or {}
+        )
         controller = did.get("roomController")
         if not isinstance(controller, dict):
             # **기기를 포기하지 않는다.** 능력 메타데이터가 없으면 무엇을 고를 수
@@ -329,6 +337,7 @@ class AironeDevice:
             for mode in (AironeMode.parse(item) for item in controller.get("mode") or [])
             if mode is not None
         )
+        modes = cls._restore_legacy_base_modes(modes, raw.get("modelCode"))
 
         # **문자열로 올 수도 있다.** 매트는 `{"mainItem": ..., "side": {...}}` 인데
         # 별칭을 안 나눠 쓰는 계정에서 그냥 이름 하나로 오는 경우를 배제할 근거가
@@ -382,6 +391,44 @@ class AironeDevice:
         )
 
     # -- 상태 반영 ----------------------------------------------------------
+
+    @staticmethod
+    def _restore_legacy_base_modes(
+        modes: tuple[AironeMode, ...], model_code: Any
+    ) -> tuple[AironeMode, ...]:
+        """구세대 DID 가 생략한 기본 조합을 되살린다.
+
+        구세대는 변형(터보·절전·숙면)만 싣고 `option 1` 자리와
+        `supportedAirVolumes` 를 주지 않는다 — 실기기(NRT-20DSW) 확인. 그대로 두면
+        `selectable_modes` 가 대표 조합으로 터보를 골라 「환기」가 터보로 나가고,
+        `fan_choices` 는 미풍·약풍·강풍을 만들지 못한다.
+
+        **능력을 지어내지 않는다.** 서버가 알려준 모드 코드에 대해서만, 앱이 모든
+        에어원에 쓰는 풍량 표를 붙여 기본 자리를 채운다.
+        """
+        code = _as_int(model_code)
+        if code is None or code >= AIRONE_V2_MIN_MODEL_CODE or not modes:
+            return modes
+
+        have = {(item.mode, item.option) for item in modes}
+        restored = list(modes)
+        # **서버가 알려준 코드에만** 기본 자리를 만든다. 확인한 기기가 한 대뿐이라
+        # 다른 모델까지 같은 모드를 지원한다고 볼 근거가 없다.
+        for mode_code in dict.fromkeys(item.mode for item in modes):
+            if (mode_code, AIRONE_OPTION_NONE) in have:
+                continue
+            restored.append(
+                AironeMode(
+                    mode=mode_code,
+                    option=AIRONE_OPTION_NONE,
+                    air_volume=None,
+                    supported_air_volumes=LEGACY_DEFAULT_AIR_VOLUMES,
+                    configurable=True,
+                    humidity_min=None,
+                    humidity_max=None,
+                )
+            )
+        return tuple(restored)
 
     def apply_reported(self, incoming: dict[str, Any]) -> None:
         """들어온 상태를 **덮어쓰지 않고 겹쳐 쓴다.**
@@ -455,6 +502,12 @@ class AironeDevice:
         return code is not None and code >= AIRONE_V2_MIN_MODEL_CODE
 
     # -- 상태 --------------------------------------------------------------
+
+    @property
+    def legacy_extras(self) -> dict[str, Any]:
+        """구세대만 싣는 값. 없으면 빈 사전."""
+        value = (self.reported or {}).get("legacyExtras")
+        return value if isinstance(value, dict) else {}
 
     @property
     def _controller(self) -> dict[str, Any]:

@@ -107,7 +107,8 @@ async def async_get_config_entry_diagnostics(
         "entities": [_entity_view(device) for device in (coordinator.data or {}).values()],
         # 에어원은 실기기 미검증이다. 해석 결과를 그대로 담아 제보 근거로 쓴다.
         "airone_entities": [
-            _airone_view(device) for device in coordinator.airone.values()
+            _airone_view(device, device.device_id in coordinator.restored_devices)
+            for device in coordinator.airone.values()
         ],
         "supported_devices": supported,
         # 이 항목이 비어 있지 않으면 이슈에 그대로 붙여 주세요.
@@ -237,7 +238,7 @@ def _numbers_only(raw: Any) -> dict[str, Any]:
     }
 
 
-def _airone_view(device: Any) -> dict[str, Any]:
+def _airone_view(device: Any, restored: bool = False) -> dict[str, Any]:
     """에어원을 어떻게 해석했는지.
 
     **실기기 미검증 구간이라 이 표가 제보의 핵심이다.** 서버가 알려준 조합과
@@ -260,6 +261,9 @@ def _airone_view(device: Any) -> dict[str, Any]:
         ),
         # 상태가 한 번이라도 도착했는지, 어느 묶음이 왔는지.
         "reported_received": bool(device.reported),
+        # 되살린 값인지. 기기가 새로 올리기 전까지는 잠정이라, 「켜짐」으로 보이는데
+        # 실제로는 꺼져 있을 수 있다.
+        "state_restored": restored,
         "reported_keys": sorted(device.reported or {}),
         "reported_room_controller_keys": sorted(
             (device.reported or {}).get("roomController") or {}
