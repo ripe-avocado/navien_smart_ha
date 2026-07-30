@@ -130,7 +130,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             _LOGGER.warning(
                 "%s 를 찾았습니다 (modelName=%s). 아직 지원하지 않습니다 — %s. "
                 "지원을 원하시면 설정 → 기기 및 서비스 → 나비엔 스마트 → "
-                "⋮ 메뉴의 '통계정보 다운로드'(진단 파일) 를 이슈에 붙여 주세요. "
+                "⋮ 메뉴의 '통계정보 다운로드' 를 이슈에 붙여 주세요. "
                 "기기ID·IP·MAC·별칭은 자동으로 가려집니다.",
                 name,
                 raw.get("modelName"),
@@ -159,7 +159,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             "사계절 모델을 찾았습니다 (%s, modelCode=%s). 난방은 지원하지만 "
             "냉방은 값 체계가 확인되지 않아 냉방 중에는 제어를 비활성으로 둡니다. "
             "냉방을 열려면 제보가 필요합니다 — 매트를 냉방으로 켜둔 뒤 설정 → "
-            "기기 및 서비스 → 나비엔 스마트 → ⋮ 메뉴의 '통계정보 다운로드'(진단 파일) 를 "
+            "기기 및 서비스 → 나비엔 스마트 → ⋮ 메뉴의 '통계정보 다운로드' 를 "
             "이슈에 붙여 주세요. 필요한 값이 그 안에 들어 있습니다.",
             device.nickname,
             device.model_code,

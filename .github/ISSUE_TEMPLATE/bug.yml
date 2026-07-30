@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        진단 파일과 로그 두 개만 붙여 주시면 대부분 원인이 나옵니다.
-        기기ID·IP·MAC·별칭은 진단 파일에서 **자동으로 가려집니다.**
+        통계정보 파일과 로그 두 개만 붙여 주시면 대부분 원인이 나옵니다.
+        기기ID·IP·MAC·별칭은 그 파일에서 **자동으로 가려집니다.**
 
   - type: textarea
     id: what
@@ -44,11 +44,10 @@ body:
   - type: textarea
     id: diagnostics
     attributes:
-      label: 진단 정보
+      label: 통계정보 파일
       description: |
         설정 → 기기 및 서비스 → **나비엔 스마트** → ⋮ → `통계정보 다운로드`
 
-        HA 버전에 따라 `진단 정보 다운로드` 로 보일 수도 있습니다 (원문 Download diagnostics). ⋮ 메뉴의 내려받기 항목입니다.
       render: json
     validations:
       required: true
