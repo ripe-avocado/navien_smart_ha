@@ -165,19 +165,21 @@ LEGACY_VERIFIED_MODES: Final = (4, 8, 12, 6, 17)
 
 # 구세대 상태 프레임이 신형에 없는 값을 더 싣는다. 해석해서 제어에 쓰지 않고
 # 진단 센서로만 보여준다 — 뜻이 확인된 것만 이름을 붙였다.
+# 이름은 앱 표기를 따르고, 뜻이 확인되지 않은 것은 원본 필드명을 괄호에 남긴다 —
+# 값이 이상할 때 어느 필드인지 바로 짚을 수 있어야 한다.
 LEGACY_EXTRA_FIELDS: Final = {
-    "radonStageValue": "radon_stage",
-    "freeFilterUsedTime": "filter_used_time",
-    "freeFilterCleanAlarmFlag": "filter_clean_alarm",
-    "hepaFilterCleanAlarmFlag": "hepa_filter_clean_alarm",
-    "deepSleepMode": "deep_sleep_mode",
-    "bypassOperation": "bypass_operation",
-    "connectedSensingBox": "connected_sensing_box",
-    "supportedOperationMode": "set_operation_mode",
-    "oduOperationMode": "odu_operation_mode",
-    "desiredAirVolume": "set_air_volume",
-    "airVolume": "actual_air_volume",
-    "errorState": "error_state",
+    "radonStageValue": ("radon_stage", "라돈 단계"),
+    "freeFilterUsedTime": ("filter_used_time", "필터 사용 시간"),
+    "freeFilterCleanAlarmFlag": ("filter_clean_alarm", "필터 청소 알림"),
+    "hepaFilterCleanAlarmFlag": ("hepa_filter_clean_alarm", "헤파필터 청소 알림"),
+    "deepSleepMode": ("deep_sleep_mode", "숙면 동작"),
+    "bypassOperation": ("bypass_operation", "바이패스 동작"),
+    "connectedSensingBox": ("connected_sensing_box", "센싱박스 연결"),
+    "supportedOperationMode": ("set_operation_mode", "설정 운전모드"),
+    "oduOperationMode": ("odu_operation_mode", "실외기 동작모드"),
+    "desiredAirVolume": ("set_air_volume", "설정 풍량"),
+    "airVolume": ("actual_air_volume", "실제 풍량"),
+    "errorState": ("error_state", "오류 상태"),
 }
 
 

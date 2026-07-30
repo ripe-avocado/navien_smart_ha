@@ -38,8 +38,8 @@ async def async_setup_entry(
         # 구세대만 싣는 값. **상태로 세지 않는다** — 엔티티는 MQTT 가 붙기 전에
         # 만들어지므로 그때 세면 하나도 안 생긴다 (필터와 같은 이유).
         if not airone.is_v2_generation:
-            for name in LEGACY_EXTRA_FIELDS.values():
-                entities.append(AironeLegacySensor(coordinator, airone, name))
+            for key, label in LEGACY_EXTRA_FIELDS.values():
+                entities.append(AironeLegacySensor(coordinator, airone, key, label))
         # 공기질은 서버가 실제로 값을 준 항목만 만든다. 목록을 미리 정하지 않는다.
         #
         # 에어모니터가 등록돼 있으면 **그 기기 카드에** 붙인다. 앱에서도 별도
@@ -277,19 +277,18 @@ class AironeLegacySensor(AironeEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:code-braces"
 
-    def __init__(self, coordinator, device, name: str) -> None:
+    def __init__(self, coordinator, device, key: str, label: str) -> None:
         super().__init__(coordinator, device)
-        self._name = name
-        self._attr_unique_id = f"{device.device_id}_legacy_{name}"
-        self._attr_translation_key = None
-        self._attr_name = name.replace("_", " ")
-        if name == "filter_used_time":
+        self._key = key
+        self._attr_unique_id = f"{device.device_id}_legacy_{key}"
+        self._attr_name = label
+        if key == "filter_used_time":
             self._attr_native_unit_of_measurement = "h"
             self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
     @property
     def native_value(self):
-        return self.device.legacy_extras.get(self._name)
+        return self.device.legacy_extras.get(self._key)
 
 
 class AironeFilterSensor(AironeEntity, SensorEntity):

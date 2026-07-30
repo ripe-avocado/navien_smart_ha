@@ -234,8 +234,8 @@ def normalize_legacy_status(payload: dict[str, Any]) -> dict[str, Any] | None:
 
     # 신형에 없는 값들. 해석해서 제어에 쓰지 않고 진단으로만 내보낸다.
     extras = {
-        name: payload[field]
-        for field, name in LEGACY_EXTRA_FIELDS.items()
+        key: payload[field]
+        for field, (key, _label) in LEGACY_EXTRA_FIELDS.items()
         if payload.get(field) is not None
     }
     if extras:
