@@ -20,6 +20,8 @@ from homeassistant.core import HomeAssistant
 
 from . import NavienSmartConfigEntry
 from .const import (
+    AIRONE_INFERRED_UNITS,
+    AIRONE_SENSOR_KINDS,
     IOT_ENDPOINT,
     KNOWN_UNITS,
     REPORT_WANTED_SERVICE_CODES,
@@ -174,6 +176,16 @@ def _airone_view(device: Any) -> dict[str, Any]:
         "error_code": device.error_code,
         "filters": list(device.filters),
         "air_sensor_kinds": list(device.sensor_kinds),
+        # 단위를 앱에서 뽑지 못해 판단으로 정한 항목. 틀렸다는 제보가 오면 고친다.
+        "air_sensor_units": {
+            kind: {
+                "unit": AIRONE_SENSOR_KINDS[kind][1],
+                "inferred": kind in AIRONE_INFERRED_UNITS,
+                "value": (device.air_sensors.get(kind) or {}).get("value"),
+                "level": (device.air_sensors.get(kind) or {}).get("level"),
+            }
+            for kind in device.sensor_kinds
+        },
         # 공기모니터를 별도 기기로 만들어야 하는지 판정할 근거다 (명세 6-6).
         "air_monitors": list(device.air_monitors),
         "modes_from_server": [

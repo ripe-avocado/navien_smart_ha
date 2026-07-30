@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice, as_number, level_text, text_or_none
-from .const import AIRONE_SENSOR_KINDS
+from .const import AIRONE_INFERRED_UNITS, AIRONE_SENSOR_KINDS
 from .coordinator import NavienSmartCoordinator
 from .entity import AironeEntity, AironeMonitorEntity, NavienSmartEntity
 from .models import NavienDevice
@@ -224,6 +224,9 @@ class _AirSensorMixin:
         if (level := level_text(raw)) is not None:
             # 숫자 센서에도 등급을 남긴다 — 앱이 보여주는 것이 이쪽이다.
             attrs["grade"] = level
+        if self._kind in AIRONE_INFERRED_UNITS:
+            # 앱에서 뽑은 단위가 아니라 판단으로 정한 것이다. 밖에서 볼 수 있게 남긴다.
+            attrs["unit_inferred"] = True
         return attrs
 
 
