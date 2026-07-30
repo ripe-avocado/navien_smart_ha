@@ -167,19 +167,22 @@ LEGACY_VERIFIED_MODES: Final = (4, 8, 12, 6, 17)
 # 진단 센서로만 보여준다 — 뜻이 확인된 것만 이름을 붙였다.
 # 이름은 앱 표기를 따르고, 뜻이 확인되지 않은 것은 원본 필드명을 괄호에 남긴다 —
 # 값이 이상할 때 어느 필드인지 바로 짚을 수 있어야 한다.
+# (필드, 표시이름, 값 대응표). 대응표가 있으면 숫자 대신 이름을 보여준다 —
+# 앱에서 뽑은 표가 있는 것만이고, **1/2 플래그 체계가 확인되지 않은 항목은
+# 표를 붙이지 않는다.** 추측해서 켜짐·꺼짐을 달면 반대로 보일 수 있다.
 LEGACY_EXTRA_FIELDS: Final = {
-    "radonStageValue": ("radon_stage", "라돈 단계"),
-    "freeFilterUsedTime": ("filter_used_time", "필터 사용 시간"),
-    "freeFilterCleanAlarmFlag": ("filter_clean_alarm", "필터 청소 알림"),
-    "hepaFilterCleanAlarmFlag": ("hepa_filter_clean_alarm", "헤파필터 청소 알림"),
-    "deepSleepMode": ("deep_sleep_mode", "숙면 동작"),
-    "bypassOperation": ("bypass_operation", "바이패스 동작"),
-    "connectedSensingBox": ("connected_sensing_box", "센싱박스 연결"),
-    "supportedOperationMode": ("set_operation_mode", "설정 운전모드"),
-    "oduOperationMode": ("odu_operation_mode", "실외기 동작모드"),
-    "desiredAirVolume": ("set_air_volume", "설정 풍량"),
-    "airVolume": ("actual_air_volume", "실제 풍량"),
-    "errorState": ("error_state", "오류 상태"),
+    "radonStageValue": ("radon_stage", "라돈 단계", "level"),
+    "freeFilterUsedTime": ("filter_used_time", "필터 사용 시간", None),
+    "freeFilterCleanAlarmFlag": ("filter_clean_alarm", "필터 청소 알림", None),
+    "hepaFilterCleanAlarmFlag": ("hepa_filter_clean_alarm", "헤파필터 청소 알림", None),
+    "deepSleepMode": ("deep_sleep_mode", "숙면 동작", None),
+    "bypassOperation": ("bypass_operation", "바이패스 동작", None),
+    "connectedSensingBox": ("connected_sensing_box", "센싱박스 연결", None),
+    "supportedOperationMode": ("set_operation_mode", "설정 운전모드", "mode"),
+    "oduOperationMode": ("odu_operation_mode", "실외기 동작모드", "mode"),
+    "desiredAirVolume": ("set_air_volume", "설정 풍량", "wind"),
+    "airVolume": ("actual_air_volume", "실제 풍량", "wind"),
+    "errorState": ("error_state", "오류 상태", "error"),
 }
 
 
@@ -474,3 +477,11 @@ UPDATE_INTERVAL_SECONDS: Final = 900
 # 에어원이 있으면 짧게 돈다. 공기질 값은 MQTT 로 오지 않고 `/air-sensor` 를 읽어야
 # 하는데, 15분마다 갱신되는 미세먼지 수치는 쓸 수가 없다. 앱은 60초마다 읽는다.
 AIRONE_UPDATE_INTERVAL_SECONDS: Final = 300
+
+# 진단 값을 사람이 읽는 이름으로 옮기는 표. 위 표들이 정의된 뒤에 둔다.
+LEGACY_VALUE_TABLES: Final = {
+    "mode": AIRONE_MODE_NAMES,
+    "wind": AIRONE_WIND_NAMES,
+    "level": AIRONE_LEVEL_NAMES,
+    "error": {0: "정상"},
+}

@@ -15,6 +15,7 @@ from .const import (
     AIRONE_INFERRED_UNITS,
     AIRONE_SENSOR_KINDS,
     LEGACY_EXTRA_FIELDS,
+    LEGACY_VALUE_TABLES,
 )
 from .coordinator import NavienSmartCoordinator
 from .entity import AironeEntity, AironeMonitorEntity, NavienSmartEntity
@@ -38,8 +39,8 @@ async def async_setup_entry(
         # 구세대만 싣는 값. **상태로 세지 않는다** — 엔티티는 MQTT 가 붙기 전에
         # 만들어지므로 그때 세면 하나도 안 생긴다 (필터와 같은 이유).
         if not airone.is_v2_generation:
-            for key, label in LEGACY_EXTRA_FIELDS.values():
-                entities.append(AironeLegacySensor(coordinator, airone, key, label))
+            for key, label, table in LEGACY_EXTRA_FIELDS.values():
+                entities.append(AironeLegacySensor(coordinator, airone, key, label, table))
         # 공기질은 서버가 실제로 값을 준 항목만 만든다. 목록을 미리 정하지 않는다.
         #
         # 에어모니터가 등록돼 있으면 **그 기기 카드에** 붙인다. 앱에서도 별도
@@ -277,9 +278,10 @@ class AironeLegacySensor(AironeEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:code-braces"
 
-    def __init__(self, coordinator, device, key: str, label: str) -> None:
+    def __init__(self, coordinator, device, key: str, label: str, table: str | None) -> None:
         super().__init__(coordinator, device)
         self._key = key
+        self._table = LEGACY_VALUE_TABLES.get(table or "")
         self._attr_unique_id = f"{device.device_id}_legacy_{key}"
         self._attr_name = label
         if key == "filter_used_time":
@@ -288,7 +290,11 @@ class AironeLegacySensor(AironeEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.device.legacy_extras.get(self._key)
+        value = self.device.legacy_extras.get(self._key)
+        if self._table is None or value is None:
+            return value
+        # 표에 없는 값은 숫자를 그대로 보여준다 — 모르는 값을 숨기지 않는다.
+        return self._table.get(value, value)
 
 
 class AironeFilterSensor(AironeEntity, SensorEntity):
