@@ -139,7 +139,9 @@ def _entity_view(device: Any) -> dict[str, Any]:
         # **냉방을 닫으려면 순서를 봐야 한다.** 「26.0 을 보냈는데 기기가 26.0 을
         # 돌려주는가」, 「한쪽만 보냈는데 양쪽이 따라오는가」, 「`season` 이 실제로
         # 무엇으로 바뀌는가」는 그 순간의 값만으로 알 수 없다.
-        # `at` 은 HA 가 켜진 뒤 흐른 초다. 온도·단계 값뿐이라 개인정보는 없다.
+        # `at` 은 절대 시각이 아니라 **간격을 보기 위한 초 단위 눈금**이다
+        # (기기 부팅 이후 흐른 초). 값 자체는 뜻이 없고 줄 사이의 차이만 쓴다.
+        # 온도·단계 값뿐이라 개인정보는 없다.
         "command_log": list(device.command_log),
         "state_log": list(device.state_log),
         "available": device.available,
@@ -164,6 +166,25 @@ def _entity_view(device: Any) -> dict[str, Any]:
             }
             for zone in device.zones
         },
+    }
+
+
+def _numbers_only(raw: Any) -> dict[str, Any]:
+    """딕셔너리에서 **숫자와 참·거짓만** 남긴다.
+
+    이름을 몰라도 값을 볼 수 있게 하는 그물이다. 목표 습도가 어느 키로 오는지
+    모르는 상태라 키를 지정할 수 없다.
+
+    문자열을 통째로 빼는 것이 가림 장치다 — 기기ID·SSID·별칭·MAC 은 모두
+    문자열이므로 여기 걸리지 않는다. **가릴 키를 나열하는 방식은 새 키가
+    생기면 새는데**, 이 방식은 새 문자열 키가 생겨도 안 나간다.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        key: value
+        for key, value in raw.items()
+        if isinstance(value, (int, float, bool)) and key not in TO_REDACT
     }
 
 
@@ -194,10 +215,29 @@ def _airone_view(device: Any) -> dict[str, Any]:
         "reported_room_controller_keys": sorted(
             (device.reported or {}).get("roomController") or {}
         ),
+        # **키 이름만으로는 부족했다.** 목표 습도가 어디에 실려 오는지 찾으려면
+        # 값을 봐야 한다. 그래서 **숫자만** 담는다 — 문자열은 통째로 뺀다.
+        # 별칭(`zoneNickname`)·식별자·SSID 는 모두 문자열이라 이 그물에 걸리지
+        # 않는다. 참·거짓과 정수·소수만 나간다.
+        "reported_room_controller_numbers": _numbers_only(
+            (device.reported or {}).get("roomController")
+        ),
+        # `additionalData` 는 자리마다 뜻이 다른 목록이다 (모드 안에서는 습도 40~65,
+        # 컨트롤러 수준에서는 0~4). 어느 쪽이 오는지 봐야 한다.
+        "reported_additional_data": [
+            _numbers_only(item)
+            for item in (
+                ((device.reported or {}).get("roomController") or {}).get(
+                    "additionalData"
+                )
+                or []
+            )
+            if isinstance(item, dict)
+        ],
         "last_humidity_remembered": device.last_humidity,
         # **순서를 보기 위한 기록.** 「모드를 바꿀 때 습도를 실어 보냈는데 기기가
         # 되돌리는가」는 그 순간의 값만으로 가릴 수 없다.
-        # `at` 은 HA 가 켜진 뒤 흐른 초다. 개인정보는 없다.
+        # `at` 은 절대 시각이 아니라 간격을 보기 위한 눈금이다. 개인정보는 없다.
         "command_log": list(device.command_log),
         "humidity_log": list(device.humidity_log),
         "available": device.available,

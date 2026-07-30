@@ -107,10 +107,6 @@ AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
 # **낙관적 갱신 대신 쓰는 장치다** — 실패를 성공처럼 보이게 하지 않는다.
 AIRONE_READBACK_DELAY_SECONDS: Final = 3
 
-# 모드를 바꾼 뒤 목표 습도를 다시 보내기까지 기다리는 시간. 상태 재조회(3초)보다
-# 뒤여야 기기가 되돌렸는지 판단할 수 있다.
-AIRONE_HUMIDITY_RESTORE_DELAY_SECONDS: Final = 8
-
 # 상태를 요청한 뒤 이만큼 지나도 응답이 없으면 로그로 알린다. 매트 실측 왕복이
 # 1.4초였으니 넉넉하다 — 조용한 실패를 사용자가 알 수 있어야 한다.
 AIRONE_SILENCE_CHECK_SECONDS: Final = 45

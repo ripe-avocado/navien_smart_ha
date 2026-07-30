@@ -320,9 +320,16 @@ class AironeDevice:
             if mode is not None
         )
 
-        nick = _dig(raw, "Properties", "nickName") or {}
+        # **문자열로 올 수도 있다.** 매트는 `{"mainItem": ..., "side": {...}}` 인데
+        # 별칭을 안 나눠 쓰는 계정에서 그냥 이름 하나로 오는 경우를 배제할 근거가
+        # 없다. 그때 `.get` 을 부르면 통합 전체가 설정 단계에서 죽는다 —
+        # 기기 하나가 아니라 **전부** 안 보인다. 문자열이면 이름으로 쓴다.
+        raw_nick = _dig(raw, "Properties", "nickName")
+        nick = raw_nick if isinstance(raw_nick, dict) else {}
+        nick_text = raw_nick.strip() if isinstance(raw_nick, str) else ""
         nickname = (
             nick.get("mainItem")
+            or nick_text
             or controller.get("zoneNickname")
             or raw.get("modelName")
             or "나비엔 환기청정"
@@ -686,18 +693,23 @@ class AironeDevice:
     def humidity_bounds(self, mode: int | None, option: int | None) -> tuple[int, int] | None:
         """제습 목표 습도 범위.
 
-        같은 모드라도 옵션에 따라 서버가 범위를 주기도 하고 안 주기도 한다
-        (앱은 터보·절전에서 습도를 「자동」으로 보여준다). 정확한 조합을 먼저 보고,
-        없으면 같은 모드의 다른 조합에서 찾는다 — 범위 자체는 모드 성질이다.
+        **조합이 정확히 맞을 때만 인정한다.** 서버는 제습·기본풍량(`9:1`)에만 범위를
+        주고 터보·절전(`9:2`·`9:3`)에는 주지 않는다.
+
+        v0.9.0 까지는 「범위는 모드의 성질이다」라며 같은 모드의 다른 조합에서
+        가져왔다. **추측이었고 앱과 어긋난다** — 앱 리소스에 `humidityAutoText` 와
+        `humiditySeekbarNone` 이 있다. 터보·절전에서 앱은 슬라이더를 감추고
+        「자동」으로 보여준다. 기기가 알아서 하는 구간이다.
+
+        범위를 만들어내면 사용자가 조절할 수 없는 값을 조절하는 것처럼 보이고,
+        그 값이 명령에 실려 나간다.
         """
         if mode is None or mode not in AIRONE_MODES_WITH_HUMIDITY:
             return None
         opt = AIRONE_OPTION_NONE if option is None else option
-        exact = [item for item in self.mode_entries(mode, opt) if item.wants_humidity]
-        same_mode = [
-            item for item in self.modes if item.mode == mode and item.wants_humidity
-        ]
-        for item in exact or same_mode:
+        for item in self.mode_entries(mode, opt):
+            if not item.wants_humidity:
+                continue
             assert item.humidity_min is not None and item.humidity_max is not None
             return (item.humidity_min, item.humidity_max)
         return None

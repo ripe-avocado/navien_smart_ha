@@ -27,7 +27,6 @@ from .const import (
     AIRONE_CMD_CHANGE_MODE,
     AIRONE_CMD_POWER,
     AIRONE_CMD_STATUS,
-    AIRONE_HUMIDITY_RESTORE_DELAY_SECONDS,
     AIRONE_READBACK_DELAY_SECONDS,
     AIRONE_SILENCE_CHECK_SECONDS,
     AIRONE_TOPIC_FMT,
@@ -531,81 +530,27 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         air_volume: int | None = None,
         humidity: int | None = None,
     ) -> None:
-        # **모드를 바꾸기 전에** 지금 알고 있는 목표 습도를 붙잡아 둔다.
-        # 기기가 응답을 보내오면 그 값으로 기억이 덮이므로, 나중에 읽으면 늦다.
-        restore = None if humidity is not None else self._humidity_to_restore(
-            device, mode, option
-        )
-
+        # **목표 습도를 나중에 한 번 더 보내는 장치를 v0.9.1 에서 걷어냈다.**
+        #
+        # v0.9.0 에서 「모드에 들어간 뒤에 다시 보내면 되지 않을까」로 넣었다.
+        # 실기기 제보로 두 가지가 드러났다.
+        #
+        # 1. **기기가 목표 습도를 상태로 돌려주지 않는다.** 관측 여덟 건이 모두
+        #    비어 있었다. 그래서 「되돌려졌는지」를 판정할 수가 없고, 재전송은
+        #    영원히 성공하지 못한 것으로 취급되어 모드를 바꿀 때마다 한 번 더
+        #    나갔다
+        # 2. **사용자 조작을 덮었다.** 판정에서 `mode` 만 비교하고 `option` 을
+        #    빼먹어, 같은 제습 안에서 풍량만 바꾸면 8초 뒤에 되돌려 놓았다.
+        #    제보 기록에 터보 → 기본풍량으로 끌려간 순간이 그대로 남았다
+        #
+        # 근거 없이 계속 쏘지 않는다. 습도는 모드 변경에 실어 한 번만 보내고,
+        # 기기가 그것을 받는지 여부는 진단 기록으로 판단한다.
         desired = device.build_mode_desired(mode, option, air_volume, humidity)
         try:
             await self._async_airone_request(device, AIRONE_CMD_CHANGE_MODE, desired)
         except NavienSmartAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         self._schedule_airone_readback(device)
-        if restore is not None:
-            self._schedule_airone_humidity_restore(device, mode, option, restore)
-
-    @staticmethod
-    def _humidity_to_restore(
-        device: AironeDevice, mode: int, option: int
-    ) -> int | None:
-        """모드를 바꾼 뒤 되돌려 놓을 목표 습도.
-
-        들어갈 모드가 습도를 쓰지 않으면 없다.
-        """
-        bounds = device.humidity_bounds(mode, option)
-        if bounds is None:
-            return None
-        for candidate in (device.target_humidity, device.last_humidity):
-            if candidate is not None and bounds[0] <= candidate <= bounds[1]:
-                return candidate
-        return None
-
-    @callback
-    def _schedule_airone_humidity_restore(
-        self, device: AironeDevice, mode: int, option: int, humidity: int
-    ) -> None:
-        """모드를 바꾼 뒤 목표 습도를 한 번 더 보낸다.
-
-        **모드 변경 메시지에 습도를 같이 실어 보내는 것으로는 안 된다.** 제습으로
-        돌아오면 기기가 자기 기본값(40%)으로 되돌린다는 제보를 v0.8.3 에서 그 방식으로
-        고치려 했는데 증상이 그대로였다.
-
-        기기가 그 모드에 **들어간 뒤에** 받아야 하는 것으로 보인다. 그래서 상태를
-        다시 읽은 다음, **여전히 값이 다를 때만** 한 번 더 보낸다.
-
-        - 기기가 처음 것을 이미 받아들였으면 값이 같아 보내지 않는다
-        - 사용자가 일부러 그 값으로 두었으면 역시 값이 같아 건드리지 않는다
-        - 되돌려졌을 때만 한 번 고쳐 보낸다. 반복 전송은 하지 않는다
-        """
-        device_id = device.device_id
-
-        async def _restore(_now: Any) -> None:
-            target = self.airone.get(device_id)
-            if target is None or target.mode != mode:
-                # 그 사이 다른 모드로 갔다. 남의 조작을 덮지 않는다.
-                return
-            if target.target_humidity == humidity:
-                return
-            _LOGGER.debug(
-                "%s 목표 습도가 %s 로 되돌아가 %s 로 다시 보냅니다",
-                target.nickname,
-                target.target_humidity,
-                humidity,
-            )
-            try:
-                await self._async_airone_request(
-                    target,
-                    AIRONE_CMD_CHANGE_MODE,
-                    target.build_mode_desired(mode, option, humidity=humidity),
-                )
-            except NavienSmartError as err:
-                _LOGGER.debug("%s 목표 습도 재전송 실패: %s", target.nickname, err)
-
-        async_call_later(
-            self.hass, AIRONE_HUMIDITY_RESTORE_DELAY_SECONDS, _restore
-        )
 
     @callback
     def _schedule_airone_silence_check(self, device: AironeDevice) -> None:

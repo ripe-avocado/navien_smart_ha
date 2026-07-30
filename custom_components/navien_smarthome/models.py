@@ -175,8 +175,14 @@ class NavienDevice:
         attrs = _dig(raw, "Properties", "registry", "attributes") or {}
         functions = attrs.get("functions") or {}
         mcu = attrs.get("mcu") or {}
-        nick = _dig(raw, "Properties", "nickName") or {}
-        side = nick.get("side") or {}
+        # **문자열로 올 수도 있다.** 매트는 `{"mainItem": ..., "side": {...}}` 인데
+        # 별칭을 안 나눠 쓰는 계정에서 그냥 이름 하나로 오는 경우를 배제할 근거가
+        # 없다. 그때 `.get` 을 부르면 통합 전체가 설정 단계에서 죽는다 —
+        # 기기 하나가 아니라 **전부** 안 보인다. 문자열이면 이름으로 쓴다.
+        raw_nick = _dig(raw, "Properties", "nickName")
+        nick = raw_nick if isinstance(raw_nick, dict) else {}
+        nick_text = raw_nick.strip() if isinstance(raw_nick, str) else ""
+        side = nick.get("side") if isinstance(nick.get("side"), dict) else {}
 
         capacity = mcu.get("capacity")
         if capacity == CAPACITY_DOUBLE or side:
@@ -196,7 +202,9 @@ class NavienDevice:
             service_code=int(service_code),
             model_code=str(raw.get("modelCode") or ""),
             model_name=str(raw.get("modelName") or attrs.get("model") or "나비엔"),
-            nickname=str(nick.get("mainItem") or raw.get("modelName") or "나비엔 기기"),
+            nickname=str(
+                nick.get("mainItem") or nick_text or raw.get("modelName") or "나비엔 기기"
+            ),
             model_type=attrs.get("modelType"),
             capacity=capacity,
             zone_names=zone_names,
