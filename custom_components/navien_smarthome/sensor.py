@@ -9,10 +9,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
-from .airone import AironeDevice
-from .const import AIRONE_LEVEL_NAMES, AIRONE_SENSOR_KINDS
+from .airone import AironeDevice, as_number, level_text, text_or_none
+from .const import AIRONE_SENSOR_KINDS
 from .coordinator import NavienSmartCoordinator
-from .entity import AironeEntity, NavienSmartEntity
+from .entity import AironeEntity, AironeMonitorEntity, NavienSmartEntity
 from .models import NavienDevice
 
 
@@ -31,9 +31,15 @@ async def async_setup_entry(
         entities.append(AironeStateSensor(coordinator, airone))
         entities.append(AironeErrorSensor(coordinator, airone))
         # 공기질은 서버가 실제로 값을 준 항목만 만든다. 목록을 미리 정하지 않는다.
-        entities.extend(
-            AironeAirSensor(coordinator, airone, kind) for kind in airone.sensor_kinds
-        )
+        #
+        # 에어모니터가 등록돼 있으면 **그 기기 카드에** 붙인다. 앱에서도 별도
+        # 부속이고, 본체 카드에 다 몰아넣으면 목록이 길어져 읽기 어렵다.
+        monitor = airone.air_monitors[0] if airone.air_monitors else None
+        for kind in airone.sensor_kinds:
+            if monitor is not None:
+                entities.append(AironeMonitorSensor(coordinator, airone, monitor, kind))
+            else:
+                entities.append(AironeAirSensor(coordinator, airone, kind))
         # 개수는 메타데이터에서 온다. 사용률은 상태에서 오지만, 엔티티는 MQTT 가
         # 붙기 전에 만들어지므로 상태로 세면 하나도 안 생긴다.
         entities.extend(
@@ -162,32 +168,37 @@ class AironeErrorSensor(AironeEntity, SensorEntity):
         return None if device is None else device.error_code
 
 
-class AironeAirSensor(AironeEntity, SensorEntity):
-    """공기질 항목 하나.
+class _AirSensorMixin:
+    """공기질 항목 하나. 본체에 붙일 때와 에어모니터에 붙일 때가 같다."""
 
-    `tvoc` 와 `radon` 은 **앱도 숫자를 보여주지 않는다** — 등급만 온다. 그래서
-    단위 없는 문자열로 둔다. 숫자를 만들어 붙이지 않는다.
-    """
+    _kind: str
+    _numeric: bool
 
-    def __init__(
-        self,
-        coordinator: NavienSmartCoordinator,
-        device: AironeDevice,
-        kind: str,
-    ) -> None:
-        super().__init__(coordinator, device)
+    def _setup_air(self, device: AironeDevice, kind: str, unique_prefix: str) -> None:
         self._kind = kind
-        self._attr_unique_id = f"{device.device_id}_air_{kind}"
-        label, unit = AIRONE_SENSOR_KINDS[kind]
+        self._attr_unique_id = f"{unique_prefix}_air_{kind}"
+        label, unit, device_class = AIRONE_SENSOR_KINDS[kind]
         self._attr_name = label
-        self._numeric = unit is not None
-        if unit is not None:
-            self._attr_native_unit_of_measurement = unit
+
+        # 숫자인지 **첫 값을 보고** 정한다. 종류만 보고 정하면 틀린다 — 앱이
+        # tvoc·radon·종합을 등급으로 표시하길래 값이 없다고 봤는데, 실사용
+        # 제보로 숫자가 온다는 것이 확인됐다.
+        #
+        # 엔티티가 만들어질 땐 첫 조회가 끝나 있어서 값이 이미 있다.
+        raw = device.air_sensors.get(kind) or {}
+        self._numeric = as_number(raw.get("value")) is not None
+        if self._numeric:
             self._attr_state_class = "measurement"
+            if unit is not None:
+                self._attr_native_unit_of_measurement = unit
+            # HA 가 아이콘·히스토리 그래프·단위 변환에 쓴다. 단위가 맞아야
+            # 붙일 수 있으므로 숫자일 때만 붙인다.
+            if device_class is not None:
+                self._attr_device_class = device_class
 
     @property
     def _raw(self) -> dict[str, Any] | None:
-        device = self.device
+        device = self.device  # type: ignore[attr-defined]
         if device is None:
             return None
         return device.air_sensors.get(self._kind)
@@ -198,14 +209,11 @@ class AironeAirSensor(AironeEntity, SensorEntity):
         if raw is None:
             return None
         if not self._numeric:
-            return _level_text(raw)
-        value = raw.get("value")
-        if value is None or value == "":
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
+            # 등급을 못 읽으면 값이라도 문자열로 낸다.
+            return level_text(raw) or text_or_none(raw.get("value"))
+        # 숫자로 시작했는데 문자열이 오면 상태를 비운다. 섞어 내면
+        # `state_class` 가 붙은 센서가 예외로 죽는다.
+        return as_number(raw.get("value"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -213,22 +221,37 @@ class AironeAirSensor(AironeEntity, SensorEntity):
         if raw is None:
             return None
         attrs: dict[str, Any] = {"kind": self._kind}
-        if (level := _level_text(raw)) is not None:
+        if (level := level_text(raw)) is not None:
+            # 숫자 센서에도 등급을 남긴다 — 앱이 보여주는 것이 이쪽이다.
             attrs["grade"] = level
         return attrs
 
 
-def _level_text(raw: dict[str, Any]) -> str | None:
-    """등급을 한국어로. 서버가 이미 한국어로 주면 그대로 쓴다."""
-    level = raw.get("level")
-    if level is None or level == "":
-        return None
-    if isinstance(level, str) and not level.lstrip("-").isdigit():
-        return level
-    try:
-        return AIRONE_LEVEL_NAMES.get(int(level))
-    except (TypeError, ValueError):
-        return str(level)
+class AironeAirSensor(_AirSensorMixin, AironeEntity, SensorEntity):
+    """공기질 항목. 에어모니터가 없으면 본체 기기에 붙는다."""
+
+    def __init__(
+        self,
+        coordinator: NavienSmartCoordinator,
+        device: AironeDevice,
+        kind: str,
+    ) -> None:
+        super().__init__(coordinator, device)
+        self._setup_air(device, kind, device.device_id)
+
+
+class AironeMonitorSensor(_AirSensorMixin, AironeMonitorEntity, SensorEntity):
+    """공기질 항목. 에어모니터 기기에 붙는다."""
+
+    def __init__(
+        self,
+        coordinator: NavienSmartCoordinator,
+        device: AironeDevice,
+        monitor: dict[str, Any],
+        kind: str,
+    ) -> None:
+        super().__init__(coordinator, device, monitor)
+        self._setup_air(device, kind, self._monitor_id)
 
 
 class AironeFilterSensor(AironeEntity, SensorEntity):

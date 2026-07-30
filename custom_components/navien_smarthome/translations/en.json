@@ -43,8 +43,8 @@
       "airone_mode": {
         "name": "Mode"
       },
-      "airone_wind": {
-        "name": "Fan speed"
+      "airone_fan": {
+        "name": "Fan"
       }
     }
   }

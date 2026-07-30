@@ -17,12 +17,18 @@ from typing import Any
 
 from .const import (
     AIRONE_HUMIDITY_TYPE,
+    AIRONE_LEVEL_NAMES,
+    AIRONE_MODE_NAMES,
+    AIRONE_MODE_SLEEP_LABEL,
     AIRONE_MODES_WITH_HUMIDITY,
+    AIRONE_OPTION_NAMES,
     AIRONE_OPTION_NONE,
+    AIRONE_OPTION_SLEEP,
     AIRONE_OPTIONS_WITH_WIND,
     AIRONE_RUN_NAMES,
     AIRONE_RUN_OFF,
     AIRONE_RUN_ON,
+    AIRONE_SENSOR_ALIASES,
     AIRONE_SENSOR_KINDS,
     AIRONE_V2_MIN_MODEL_CODE,
     AIRONE_WIND_NAMES,
@@ -48,6 +54,42 @@ def _as_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def as_number(value: Any) -> float | None:
+    """숫자로 읽히면 숫자, 아니면 None. 빈 문자열은 값이 없는 것으로 본다.
+
+    공기질 값이 종류마다 숫자거나 문자열이라 판정이 필요하다 —
+    `tvoc`·`radon`·`total` 은 앱이 등급으로 **표시**하지만 숫자가 온다.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def level_text(raw: dict[str, Any]) -> str | None:
+    """공기질 등급을 한국어로. 서버가 이미 한국어로 주면 그대로 쓴다."""
+    level = raw.get("level")
+    if level is None or level == "":
+        return None
+    if isinstance(level, str) and not level.lstrip("-").isdigit():
+        return level
+    try:
+        return AIRONE_LEVEL_NAMES.get(int(level))
+    except (TypeError, ValueError):
+        return str(level)
 
 
 def _version_text(current: Any) -> str | None:
@@ -131,6 +173,36 @@ class AironeMode:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class AironeModeChoice:
+    """운전 모드 목록의 항목 하나.
+
+    앱은 모드와 풍량을 **다른 축**으로 다룬다. 터보·절전·기저는 풍량 쪽이고,
+    숙면만 예외로 모드 쪽이다 (`AironeModeCode.rawToUi`).
+    """
+
+    mode: int
+    option: int
+    label: str
+
+    @property
+    def is_sleep(self) -> bool:
+        return self.option == AIRONE_OPTION_SLEEP
+
+
+@dataclass(frozen=True, slots=True)
+class AironeFanChoice:
+    """풍량 목록의 항목 하나.
+
+    `option == 1` 이면 `airVolume` 이 풍량을 정하고, 그 밖이면 옵션 자체가
+    풍량을 대신한다 (터보·절전·기저). 앱 `labelFor` 와 같은 규칙이다.
+    """
+
+    option: int
+    air_volume: int | None
+    label: str
+
+
 @dataclass(slots=True)
 class AironeDevice:
     """에어원 하나. `reported` 는 MQTT 로 들어올 때마다 갈린다."""
@@ -149,6 +221,11 @@ class AironeDevice:
     # 필터 **개수**는 메타데이터에서 온다. 사용률은 상태에서 오는데, 엔티티는
     # MQTT 가 붙기 전에 만들어지므로 개수를 상태에서 읽으면 센서가 하나도 안 생긴다.
     filter_types: tuple[int | None, ...]
+    # 공기모니터(에어모니터). 별도 기기로 등록되며 공기질 센서가 여기 붙어 있다.
+    # `modelCode` 가 1000 미만이지만(실측 NAA-21DM=35) **제어 대상이 아니라**
+    # 세대 판정과 무관하다. 지금은 공기질을 본체 기기에 붙이고, 이 정보는
+    # 진단에만 담아 제보로 판정한다 (명세 6-6).
+    air_monitors: tuple[dict[str, Any], ...]
     sensor_kinds: tuple[str, ...]
     rc_version: str | None
     odu_version: str | None
@@ -202,6 +279,17 @@ class AironeDevice:
             filter_types=tuple(
                 _as_int(item.get("type"))
                 for item in odu.get("filter") or []
+                if isinstance(item, dict)
+            ),
+            air_monitors=tuple(
+                {
+                    "deviceId": item.get("deviceId"),
+                    "modelCode": item.get("modelCode"),
+                    "version": item.get("version"),
+                    "zoneId": item.get("zoneId"),
+                    "sensor": item.get("sensor"),
+                }
+                for item in did.get("airMonitor") or []
                 if isinstance(item, dict)
             ),
             sensor_kinds=(),
@@ -330,48 +418,123 @@ class AironeDevice:
     # -- 능력 --------------------------------------------------------------
 
     @property
-    def selectable_modes(self) -> tuple[AironeMode, ...]:
-        """사용자가 고를 수 있는 조합. 서버 순서를 그대로 지킨다.
+    def configurable_modes(self) -> tuple[AironeMode, ...]:
+        return tuple(item for item in self.modes if item.configurable)
 
-        같은 `(mode, option)` 이 풍량만 달라 여러 번 올 수 있으므로 한 번만 남긴다.
+    @property
+    def selectable_modes(self) -> tuple[AironeModeChoice, ...]:
+        """운전 모드 목록. **서버 순서를 지킨다.**
+
+        앱과 같은 축으로 자른다 — 터보·절전·기저는 여기 넣지 않고 풍량 쪽으로
+        보낸다. 숙면만 별도 모드로 올린다.
+
+        서버가 어떤 모드에 `option 1` 을 안 주고 터보만 줄 수도 있다. 그때도 그
+        모드가 목록에서 사라지지 않도록 **그 모드의 첫 조합**을 대표로 쓴다.
         """
+        result: list[AironeModeChoice] = []
         seen: set[tuple[int, int]] = set()
-        result: list[AironeMode] = []
-        for mode in self.modes:
-            if not mode.configurable or mode.key in seen:
+
+        for item in self.configurable_modes:
+            if item.option == AIRONE_OPTION_SLEEP:
+                key = (item.mode, AIRONE_OPTION_SLEEP)
+                label = AIRONE_MODE_SLEEP_LABEL
+            else:
+                # 그 모드의 대표 option — 1 이 있으면 1, 없으면 처음 나온 것.
+                options = [
+                    other.option
+                    for other in self.configurable_modes
+                    if other.mode == item.mode and other.option != AIRONE_OPTION_SLEEP
+                ]
+                option = AIRONE_OPTION_NONE if AIRONE_OPTION_NONE in options else options[0]
+                key = (item.mode, option)
+                label = AIRONE_MODE_NAMES.get(item.mode) or f"알 수 없음({item.mode})"
+
+            if key in seen:
                 continue
-            seen.add(mode.key)
-            result.append(mode)
+            seen.add(key)
+            result.append(AironeModeChoice(mode=key[0], option=key[1], label=label))
+
+        # 숙면이 여러 모드에 붙어 있으면 이름이 겹친다. 그때만 모드를 덧붙인다.
+        sleeps = [c for c in result if c.is_sleep]
+        if len(sleeps) > 1:
+            result = [
+                AironeModeChoice(
+                    c.mode,
+                    c.option,
+                    f"{AIRONE_MODE_NAMES.get(c.mode, c.mode)} {AIRONE_MODE_SLEEP_LABEL}",
+                )
+                if c.is_sleep
+                else c
+                for c in result
+            ]
         return tuple(result)
 
     def mode_entries(self, mode: int, option: int) -> tuple[AironeMode, ...]:
         return tuple(item for item in self.modes if item.key == (mode, option))
 
-    def wind_choices(self, mode: int | None, option: int | None) -> tuple[int, ...]:
-        """지금 조합에서 고를 수 있는 풍량.
+    def fan_choices(self, mode: int | None, option: int | None) -> tuple[AironeFanChoice, ...]:
+        """지금 모드에서 고를 수 있는 풍량.
 
-        **서버 메타데이터에 실제로 있던 값만** 돌려준다. 표를 만들어 채우지 않는다.
+        **서버 메타데이터에 실제로 있던 조합만** 돌려준다. 표를 만들어 채우지 않는다.
+
+        - `option == 1` → `airVolume` 이 미풍·약풍·강풍·자동을 정한다
+        - `option` 이 터보·절전·기저 → 옵션 자체가 풍량 항목이 된다
+        - 숙면 모드 안에서는 그 조합의 `airVolume` 만 쓴다 (앱과 같다)
         """
         if mode is None:
             return ()
-        opt = AIRONE_OPTION_NONE if option is None else option
-        if opt not in AIRONE_OPTIONS_WITH_WIND:
-            return ()
-        values = {
-            item.air_volume
-            for item in self.mode_entries(mode, opt)
-            if item.air_volume is not None
-        }
-        return tuple(sorted(values))
+        sleeping = option == AIRONE_OPTION_SLEEP
+        result: list[AironeFanChoice] = []
+        seen: set[str] = set()
+
+        for item in self.configurable_modes:
+            if item.mode != mode:
+                continue
+            if sleeping != (item.option == AIRONE_OPTION_SLEEP):
+                # 숙면 모드에서는 숙면 조합만, 그 밖에서는 숙면 아닌 것만 본다.
+                continue
+
+            if item.option in AIRONE_OPTIONS_WITH_WIND:
+                if item.air_volume is None:
+                    continue
+                label = AIRONE_WIND_NAMES.get(item.air_volume)
+            else:
+                label = AIRONE_OPTION_NAMES.get(item.option)
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            result.append(AironeFanChoice(item.option, item.air_volume, label))
+        return tuple(result)
+
+    def current_fan_label(self) -> str | None:
+        """지금 상태에 해당하는 풍량 항목 이름."""
+        for choice in self.fan_choices(self.mode, self.option):
+            if choice.option != (self.option or AIRONE_OPTION_NONE):
+                continue
+            if choice.option in AIRONE_OPTIONS_WITH_WIND:
+                if choice.air_volume == self.air_volume:
+                    return choice.label
+                continue
+            return choice.label
+        return None
 
     def humidity_bounds(self, mode: int | None, option: int | None) -> tuple[int, int] | None:
+        """제습 목표 습도 범위.
+
+        같은 모드라도 옵션에 따라 서버가 범위를 주기도 하고 안 주기도 한다
+        (앱은 터보·절전에서 습도를 「자동」으로 보여준다). 정확한 조합을 먼저 보고,
+        없으면 같은 모드의 다른 조합에서 찾는다 — 범위 자체는 모드 성질이다.
+        """
         if mode is None or mode not in AIRONE_MODES_WITH_HUMIDITY:
             return None
         opt = AIRONE_OPTION_NONE if option is None else option
-        for item in self.mode_entries(mode, opt):
-            if item.wants_humidity:
-                assert item.humidity_min is not None and item.humidity_max is not None
-                return (item.humidity_min, item.humidity_max)
+        exact = [item for item in self.mode_entries(mode, opt) if item.wants_humidity]
+        same_mode = [
+            item for item in self.modes if item.mode == mode and item.wants_humidity
+        ]
+        for item in exact or same_mode:
+            assert item.humidity_min is not None and item.humidity_max is not None
+            return (item.humidity_min, item.humidity_max)
         return None
 
     # -- 공기질 ------------------------------------------------------------
@@ -386,6 +549,8 @@ class AironeDevice:
             kind = item.get("type")
             if not isinstance(kind, str) or not kind:
                 continue
+            # 서버가 다른 이름으로 줄 수 있다. 표준 이름으로 모은다.
+            kind = AIRONE_SENSOR_ALIASES.get(kind.strip().lower(), kind)
             if kind not in AIRONE_SENSOR_KINDS:
                 unknown.append(kind)
                 continue
@@ -428,12 +593,15 @@ class AironeDevice:
             _LOGGER.debug("에어원 풍량 %s 는 확인된 값이 아니라 무시합니다", wind)
             wind = None
         if wind is None:
-            choices = self.wind_choices(mode, option)
-            current = self.air_volume
-            if current in choices:
-                wind = current
-            elif choices:
-                wind = choices[0]
+            allowed = [
+                choice.air_volume
+                for choice in self.fan_choices(mode, option)
+                if choice.option == option and choice.air_volume is not None
+            ]
+            if self.air_volume in allowed:
+                wind = self.air_volume
+            elif allowed:
+                wind = allowed[0]
         if wind is not None:
             controller["airVolume"] = wind
 

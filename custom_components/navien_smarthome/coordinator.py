@@ -13,6 +13,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -26,6 +27,7 @@ from .const import (
     AIRONE_CMD_CHANGE_MODE,
     AIRONE_CMD_POWER,
     AIRONE_CMD_STATUS,
+    AIRONE_READBACK_DELAY_SECONDS,
     AIRONE_UPDATE_INTERVAL_SECONDS,
     DOMAIN,
     OUT_OF_SCOPE_REASONS,
@@ -438,6 +440,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             )
         except NavienSmartAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
+        self._schedule_airone_readback(device)
 
     async def async_airone_mode(
         self,
@@ -452,6 +455,31 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             await self._async_airone_request(device, AIRONE_CMD_CHANGE_MODE, desired)
         except NavienSmartAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
+        self._schedule_airone_readback(device)
+
+    @callback
+    def _schedule_airone_readback(self, device: AironeDevice) -> None:
+        """명령을 보낸 뒤 상태를 한 번 다시 물어본다.
+
+        **낙관적 갱신을 하지 않는다.** 명령이 접수됐다고 UI 를 먼저 바꿔놓으면,
+        기기가 거부했을 때 사용자는 "됐다가 되돌아간다" 를 겪는다 — 실패를
+        성공처럼 보이게 하는 셈이다. 매트에서 같은 이유로 안 했다.
+
+        대신 실제 상태를 다시 읽는다. 기기가 스스로 올려주는 것이 정상이지만,
+        안 올려도 이 한 번으로 따라잡는다.
+        """
+        device_id = device.device_id
+
+        async def _readback(_now: Any) -> None:
+            target = self.airone.get(device_id)
+            if target is None or not target.available:
+                return
+            try:
+                await self._async_airone_request(target, AIRONE_CMD_STATUS, None)
+            except NavienSmartError as err:
+                _LOGGER.debug("%s 상태 재확인 실패: %s", target.nickname, err)
+
+        async_call_later(self.hass, AIRONE_READBACK_DELAY_SECONDS, _readback)
 
     async def async_send(self, device: NavienDevice, desired: dict[str, Any]) -> None:
         """명령을 보낸 뒤 낙관적 갱신은 하지 않는다.

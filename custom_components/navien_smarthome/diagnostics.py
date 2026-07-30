@@ -174,6 +174,8 @@ def _airone_view(device: Any) -> dict[str, Any]:
         "error_code": device.error_code,
         "filters": list(device.filters),
         "air_sensor_kinds": list(device.sensor_kinds),
+        # 공기모니터를 별도 기기로 만들어야 하는지 판정할 근거다 (명세 6-6).
+        "air_monitors": list(device.air_monitors),
         "modes_from_server": [
             {
                 "mode": mode.mode,
@@ -185,11 +187,16 @@ def _airone_view(device: Any) -> dict[str, Any]:
             }
             for mode in device.modes
         ],
-        "selectable_modes": [mode.label for mode in device.selectable_modes],
-        "wind_choices": {
-            f"{mode.mode}:{mode.option}": list(
-                device.wind_choices(mode.mode, mode.option)
-            )
-            for mode in device.selectable_modes
+        "selectable_modes": [
+            {"mode": m.mode, "option": m.option, "label": m.label}
+            for m in device.selectable_modes
+        ],
+        "fan_choices": {
+            f"{m.mode}:{m.option}": [
+                {"option": c.option, "air_volume": c.air_volume, "label": c.label}
+                for c in device.fan_choices(m.mode, m.option)
+            ]
+            for m in device.selectable_modes
         },
+        "current_fan_label": device.current_fan_label(),
     }

@@ -102,6 +102,11 @@ AIRONE_CMD_STATUS: Final = "status"
 AIRONE_CMD_POWER: Final = "power"
 AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
 
+# 명령을 보낸 뒤 상태를 다시 물어보기까지 기다리는 시간. 기기가 스스로 올려주면
+# 그게 먼저 도착하고, 안 올려주면 이 한 번으로 따라잡는다.
+# **낙관적 갱신 대신 쓰는 장치다** — 실패를 성공처럼 보이게 하지 않는다.
+AIRONE_READBACK_DELAY_SECONDS: Final = 3
+
 # `running` — V2.1 세대. 레거시는 반대(운전=2)다. 세대를 안 가리면 전원이 뒤집힌다.
 AIRONE_RUN_ON: Final = 1
 AIRONE_RUN_OFF: Final = 2
@@ -112,19 +117,28 @@ AIRONE_RUN_NAMES: Final = {
     AIRONE_RUN_AWAY: "외출",
 }
 
-# `ROOM_OPERATION_MODE_*` + `AironeModeCode.uiBaseLabel`
+# 값은 `ROOM_OPERATION_MODE_*` / `OPERATION_MODE_*`, 이름은 앱 제어화면 문자열
+# (`STR_FRAGMENT_AIRONE_CONTROL_MODE_*_TITLE`)에서 가져왔다. 「~모드」 접미사는
+# 옵션과 붙일 때 어색해져서 뺀다 (환기모드 · 터보 → 환기 터보).
+#
+# 서버가 주지 않는 모드도 라벨을 둔다. 표시용일 뿐이고 제어는 서버가 알려준
+# 조합에서만 나오므로 위험하지 않다 — 모르는 값이 와도 숫자로 보이지 않는다.
 AIRONE_MODE_NAMES: Final = {
     0: "없음",
-    4: "환기",
-    6: "요리",
-    8: "청정",
-    9: "제습",
+    4: "환기",  # 환기모드
+    5: "배기",  # 배기모드
+    6: "요리",  # 요리모드
+    8: "청정",  # 청정모드
+    9: "제습",  # 제습모드
     10: "환기제습",
-    12: "자동",
+    12: "자동운전",
+    15: "환기(외기)",  # OPERATION_MODE_AERATION — 앱 명칭 미확인
     17: "바이패스",
+    18: "음압환기",
 }
 
-# `ROOM_OPERATION_OPTION_*`. 1 은 "옵션 없음" 이라 라벨을 붙이지 않는다.
+# `ROOM_OPERATION_OPTION_*`. 이름은 앱 제어화면 문자열
+# (`STR_FRAGMENT_AIRONE_CONTROL_OPTION_*`). 1 은 "옵션 없음" 이라 라벨이 없다.
 AIRONE_OPTION_NONE: Final = 1
 AIRONE_OPTION_SLEEP: Final = 4
 AIRONE_OPTION_NAMES: Final = {
@@ -135,8 +149,12 @@ AIRONE_OPTION_NAMES: Final = {
     6: "기저",
 }
 
-# `ROOM_OPERATION_WIND_*`. **이 표에 없는 값은 보내지 않는다** —
-# `ModeDid.airVolume` 이 비트마스크일 가능성이 남아 있다 (명세 6-5 참조).
+# `ROOM_OPERATION_WIND_*` + 앱 문자열 `..._CONTROL_WIND_1~3`.
+# **이 표에 없는 값은 보내지 않는다** — `ModeDid.airVolume` 이 비트마스크일
+# 가능성이 남아 있다 (명세 6-5 참조).
+#
+# SCADA(상업용)는 같은 자리에 다른 표를 쓴다 (5=수면풍, 6=절전, 7=터보).
+# 섞으면 안 된다 — 여기는 가정용 룸컨트롤러 표다.
 AIRONE_WIND_NAMES: Final = {
     1: "미풍",
     2: "약풍",
@@ -150,10 +168,20 @@ AIRONE_WIND_NAMES: Final = {
 # 풍량을 함께 쓴다 (`AironeModeCode.labelFor`).
 AIRONE_OPTIONS_WITH_WIND: Final = frozenset({AIRONE_OPTION_NONE, AIRONE_OPTION_SLEEP})
 
+# 앱은 숙면을 **별도 모드 버튼**으로 둔다 (`STR_..._MODE_SLEEP_TITLE` = 「숙면모드」,
+# `AironeModeCode.rawToUi` 가 option 4 일 때 원래 모드를 감추고 1001 을 반환한다).
+# 그래서 숙면은 풍량 목록이 아니라 운전 모드 목록에 넣는다.
+AIRONE_MODE_SLEEP_LABEL: Final = "숙면"
+
 # 제습·환기제습에서만 목표 습도를 보여준다. 범위는 서버 `additionalData` 의
 # min/max 를 쓴다 — 여기에 숫자를 적지 않는다.
 AIRONE_MODES_WITH_HUMIDITY: Final = frozenset({9, 10})
 AIRONE_HUMIDITY_TYPE: Final = 1
+
+# 앱의 희망습도 −/+ 버튼이 5씩 움직인다
+# (`AirOneControlFragment`: `setProgress(getProgress() ± 5)`). 서버는 min/max 만
+# 주고 간격을 주지 않으므로 앱을 따른다.
+AIRONE_HUMIDITY_STEP: Final = 5
 
 # `SENSOR_LEVEL_*`
 AIRONE_LEVEL_NAMES: Final = {
@@ -164,29 +192,56 @@ AIRONE_LEVEL_NAMES: Final = {
     4: "매우나쁨",
 }
 
+# 서버가 라돈 키를 다른 이름으로 줄 수 있다는 정황이 있어 별칭을 받아둔다.
+# 표준 이름으로 모아 하나의 센서로 만든다.
+AIRONE_SENSOR_ALIASES: Final = {
+    "radonvalue": "radon",
+    "radon_value": "radon",
+    "radonbq": "radon",
+    "radonbqm3": "radon",
+    "pm1": "pm1Dot0",
+    "pm1.0": "pm1Dot0",
+    "pm25": "pm2Dot5",
+    "pm2.5": "pm2Dot5",
+    "airqualityscore": "total",
+}
+
 # `/air-sensor` 의 `airs[].type` — 문자열이다. `SensorDid.type` 의 정수와 다른
 # 체계다. 여기 없는 종류는 만들지 않고 로그만 남긴다.
 #
-# `unit` 이 None 인 항목은 앱도 숫자를 안 보여준다 (`getValueText` 가 `level` 을
-# 그대로 반환한다). 숫자를 만들어 붙이지 않는다.
+# `unit` 이 None 인 것은 "값이 없다"는 뜻이 아니라 **단위를 확인하지 못했다**는
+# 뜻이다. 앱이 `tvoc`·`radon` 을 등급으로 **표시**하길래 값이 없다고 판단했는데,
+# 실사용 제보로 숫자가 온다는 것이 확인됐다 (라돈 수치, TVOC 70.0,
+# 종합 82.0). `getValueText` 는 표시 함수일 뿐이고 `Air.value` 에는 숫자가 있다.
+#
+# `unit` 은 앱에서 확인한 것이고, `device_class` 는 HA 가 아이콘·히스토리·단위 변환에
+# 쓴다. 라돈 단위는 앱에 문자열이 없어 국제 표준(Bq/㎥)을 쓴다 — 표시용이고 제어에
+# 쓰이지 않으므로 위험하지 않다. **TVOC 는 ppb 인지 ㎍/㎥ 인지 지수인지 갈려서
+# 붙이지 않는다** — 틀린 단위는 없는 단위보다 나쁘다.
 AIRONE_SENSOR_KINDS: Final = {
-    "pm1Dot0": ("극초미세먼지", "㎍/㎥"),
-    "pm2Dot5": ("초미세먼지", "㎍/㎥"),
-    "pm10": ("미세먼지", "㎍/㎥"),
-    "co2": ("이산화탄소", "ppm"),
-    "tvoc": ("휘발성유기화합물", None),
-    "radon": ("라돈", None),
-    "temperature": ("온도", "°C"),
-    "humidity": ("습도", "%"),
-    "total": ("종합 공기질", None),
+    "pm1Dot0": ("극초미세먼지", "㎍/㎥", "pm1"),
+    "pm2Dot5": ("초미세먼지", "㎍/㎥", "pm25"),
+    "pm10": ("미세먼지", "㎍/㎥", "pm10"),
+    "co2": ("이산화탄소", "ppm", "carbon_dioxide"),
+    "tvoc": ("휘발성유기화합물", None, None),
+    "radon": ("라돈", "Bq/㎥", None),
+    "temperature": ("온도", "°C", "temperature"),
+    "humidity": ("습도", "%", "humidity"),
+    "total": ("종합 공기질", None, None),
 }
 
 
 def airone_mode_label(mode: int, option: int) -> str:
-    """운전 모드 조합을 앱과 같은 말로 옮긴다."""
+    """운전 모드 조합을 앱과 같은 말로 옮긴다.
+
+    앱은 `숙면` 일 때 원래 모드를 감추고 「숙면」만 보여주지만
+    (`AironeModeCode.rawToUi` 가 1001 을 반환한다), 여기서는 감추지 않는다.
+    `(9,4)` 와 `(4,4)` 가 둘 다 있으면 목록에 같은 이름이 두 개 생겨서
+    사용자가 고를 수 없게 된다.
+    """
     base = AIRONE_MODE_NAMES.get(mode, f"알 수 없음({mode})")
     suffix = AIRONE_OPTION_NAMES.get(option)
-    return f"{base} · {suffix}" if suffix else base
+    return f"{base} {suffix}" if suffix else base
 
 # --- 제어 축 (heatControl.unit) -------------------------------------------
 

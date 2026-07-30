@@ -23,13 +23,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice
-from .const import (
-    AIRONE_OPTION_NONE,
-    AIRONE_WIND_NAMES,
-    LEVEL_STANDBY,
-    ZONE_NAMES,
-    level_label,
-)
+from .const import AIRONE_OPTION_SLEEP, LEVEL_STANDBY, ZONE_NAMES, level_label
 from .coordinator import NavienSmartCoordinator
 from .entity import AironeEntity, NavienSmartEntity
 from .models import NavienDevice
@@ -54,13 +48,13 @@ async def async_setup_entry(
         # 서버가 고를 수 있는 조합을 알려주지 않으면 만들지 않는다.
         if airone.selectable_modes:
             entities.append(AironeModeSelect(coordinator, airone))
-        # 풍량은 조합에 따라 고를 수 있는 값이 달라진다. 어떤 조합에서든 두 개
+        # 풍량은 모드에 따라 고를 수 있는 값이 달라진다. 어떤 모드에서든 두 개
         # 이상 고를 수 있을 때만 만든다.
         if any(
-            len(airone.wind_choices(mode.mode, mode.option)) > 1
+            len(airone.fan_choices(mode.mode, mode.option)) > 1
             for mode in airone.selectable_modes
         ):
-            entities.append(AironeWindSelect(coordinator, airone))
+            entities.append(AironeFanSelect(coordinator, airone))
 
     async_add_entities(entities)
 
@@ -151,6 +145,9 @@ class AironeModeSelect(AironeEntity, SelectEntity):
 
     선택 항목을 **서버 메타데이터(`did.roomController.mode`)에서만** 만든다.
     모델 표를 코드에 넣지 않는다 — 매트에서 통한 방식과 같다.
+
+    앱과 같은 축으로 자른다 — 터보·절전·기저는 여기가 아니라 풍량 쪽이다.
+    그래야 목록이 짧고, 풍량만 바꾸려고 모드 목록을 뒤지지 않는다.
     """
 
     _attr_translation_key = "airone_mode"
@@ -165,18 +162,28 @@ class AironeModeSelect(AironeEntity, SelectEntity):
     @property
     def current_option(self) -> str | None:
         device = self.device
-        if device is None:
+        if device is None or device.mode is None:
             return None
-        label = device.mode_label
-        # 목록에 없는 값이면 상태를 비운다. 없는 항목을 만들지 않는다.
-        return label if label in (self._attr_options or []) else None
+        # 지금 상태가 어느 항목에 해당하는지 찾는다. 숙면은 옵션까지 봐야 갈린다.
+        for choice in self._modes:
+            if choice.mode != device.mode:
+                continue
+            if choice.is_sleep != (device.option == AIRONE_OPTION_SLEEP):
+                continue
+            return choice.label
+        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         device = self.device
         if device is None:
             return None
-        return {"mode": device.mode, "option": device.option}
+        return {
+            "mode": device.mode,
+            "option": device.option,
+            # 앱이 보여주는 전체 문구. 자동화·템플릿에서 쓸 수 있게 남긴다.
+            "full_label": device.mode_label,
+        }
 
     async def async_select_option(self, option: str) -> None:
         device = self.device
@@ -186,40 +193,41 @@ class AironeModeSelect(AironeEntity, SelectEntity):
             chosen = self._modes[(self._attr_options or []).index(option)]
         except ValueError:
             return
+        # 모드를 바꿀 때 풍량은 `build_mode_desired` 가 서버 값에서 골라 채운다.
         await self.coordinator.async_airone_mode(device, chosen.mode, chosen.option)
 
 
-class AironeWindSelect(AironeEntity, SelectEntity):
+class AironeFanSelect(AironeEntity, SelectEntity):
     """풍량.
 
-    지금 운전 조합에서 고를 수 있는 값만 보여준다. `airVolume` 이 비트마스크일
-    가능성이 남아 있어 **확인된 표(1~6)에 있는 값만** 다룬다 (명세 6-5).
+    **미풍·약풍·강풍·자동과 터보·절전·기저를 한 축에 둔다.** 앱이 그렇게 다룬다
+    (`AironeModeCode.labelFor` 의 두 번째 칸). 기기에 따라 앞쪽만 있거나 뒤쪽만
+    있는데, 어느 쪽이든 사용자에게는 「풍량」 하나로 보이는 것이 맞다.
+
+    지금 모드에서 서버가 알려준 조합만 보여준다.
     """
 
-    _attr_translation_key = "airone_wind"
+    _attr_translation_key = "airone_fan"
     _attr_icon = "mdi:fan"
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:
         super().__init__(coordinator, device)
-        self._attr_unique_id = f"{device.device_id}_wind"
+        self._attr_unique_id = f"{device.device_id}_fan"
 
     @property
-    def _choices(self) -> tuple[int, ...]:
+    def _choices(self) -> tuple[Any, ...]:
         device = self.device
         if device is None:
             return ()
-        return device.wind_choices(device.mode, device.option)
+        return device.fan_choices(device.mode, device.option)
 
     @property
     def options(self) -> list[str]:
-        return [AIRONE_WIND_NAMES[value] for value in self._choices]
+        return [choice.label for choice in self._choices]
 
     @property
     def available(self) -> bool:
-        """지금 조합에서 풍량을 고를 수 없으면 손을 뗀다.
-
-        터보·절전 같은 옵션에서는 앱도 풍량을 보여주지 않는다.
-        """
+        """지금 모드에서 고를 것이 없으면 손을 뗀다."""
         return super().available and len(self._choices) > 1
 
     @property
@@ -227,7 +235,7 @@ class AironeWindSelect(AironeEntity, SelectEntity):
         device = self.device
         if device is None:
             return None
-        label = device.wind_label
+        label = device.current_fan_label()
         return label if label in self.options else None
 
     @property
@@ -235,20 +243,15 @@ class AironeWindSelect(AironeEntity, SelectEntity):
         device = self.device
         if device is None:
             return None
-        return {"air_volume": device.air_volume}
+        return {"option": device.option, "air_volume": device.air_volume}
 
     async def async_select_option(self, option: str) -> None:
         device = self.device
         if device is None or device.mode is None:
             return
-        choices = self._choices
-        try:
-            value = choices[self.options.index(option)]
-        except ValueError:
+        chosen = next((c for c in self._choices if c.label == option), None)
+        if chosen is None:
             return
-        option_code = (
-            AIRONE_OPTION_NONE if device.option is None else device.option
-        )
         await self.coordinator.async_airone_mode(
-            device, device.mode, option_code, air_volume=value
+            device, device.mode, chosen.option, air_volume=chosen.air_volume
         )

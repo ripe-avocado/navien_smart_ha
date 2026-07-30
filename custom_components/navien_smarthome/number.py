@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice
-from .const import AIRONE_OPTION_NONE
+from .const import AIRONE_HUMIDITY_STEP, AIRONE_OPTION_NONE
 from .coordinator import NavienSmartCoordinator
 from .entity import AironeEntity
 
@@ -42,7 +42,8 @@ class AironeHumidityNumber(AironeEntity, NumberEntity):
     _attr_name = "목표 습도"
     _attr_icon = "mdi:water-percent"
     _attr_native_unit_of_measurement = "%"
-    _attr_native_step = 1
+    # 앱의 −/+ 버튼이 5씩 움직인다. 서버는 간격을 주지 않으므로 앱을 따른다.
+    _attr_native_step = AIRONE_HUMIDITY_STEP
     _attr_mode = NumberMode.SLIDER
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:
@@ -92,7 +93,10 @@ class AironeHumidityNumber(AironeEntity, NumberEntity):
         bounds = self._bounds
         if bounds is None:
             return
-        target = max(bounds[0], min(bounds[1], int(round(value))))
+        # 슬라이더가 5단위여도 자동화는 임의 값을 넣을 수 있다. 5의 배수로 맞춘 뒤
+        # 서버가 알려준 범위로 자른다.
+        stepped = int(round(value / AIRONE_HUMIDITY_STEP) * AIRONE_HUMIDITY_STEP)
+        target = max(bounds[0], min(bounds[1], stepped))
         option = AIRONE_OPTION_NONE if device.option is None else device.option
         await self.coordinator.async_airone_mode(
             device, device.mode, option, humidity=target

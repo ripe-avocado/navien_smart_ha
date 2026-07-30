@@ -798,8 +798,9 @@ def cmd_whoami(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------- 에어원
 
-AIRONE_MODE_NAMES = {0: "없음", 4: "환기", 6: "요리", 8: "청정", 9: "제습",
-                     10: "환기제습", 12: "자동", 17: "바이패스"}
+AIRONE_MODE_NAMES = {0: "없음", 4: "환기", 5: "배기", 6: "요리", 8: "청정", 9: "제습",
+                     10: "환기제습", 12: "자동운전", 15: "환기(외기)", 17: "바이패스",
+                     18: "음압환기"}
 AIRONE_OPTION_NAMES = {1: "", 2: "터보", 3: "절전", 4: "숙면", 5: "기저", 6: "기저"}
 AIRONE_WIND_NAMES = {1: "미풍", 2: "약풍", 3: "강풍", 4: "자동", 5: "기저", 6: "기저"}
 AIRONE_RUN_NAMES = {1: "운전", 2: "정지", 3: "외출"}
@@ -808,7 +809,7 @@ AIRONE_RUN_NAMES = {1: "운전", 2: "정지", 3: "외출"}
 def _airone_mode_label(mode: Any, option: Any) -> str:
     base = AIRONE_MODE_NAMES.get(mode, f"알 수 없음({mode})")
     suffix = AIRONE_OPTION_NAMES.get(option) or ""
-    return f"{base} · {suffix}" if suffix else base
+    return f"{base} {suffix}" if suffix else base
 
 
 def _airone_prepare(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any], str, int, int]:
