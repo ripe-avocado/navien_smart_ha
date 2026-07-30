@@ -16,6 +16,8 @@ from typing import Any
 
 from .const import (
     CAPACITY_DOUBLE,
+    MAT_ERROR_NAMES,
+    MODE_HEAT,
     MODE_NAMES,
     MODES_ON,
     SEASON_NAMES,
@@ -325,9 +327,20 @@ class NavienDevice:
 
     @property
     def mode_name(self) -> str | None:
+        """운전 상태를 사람이 읽는 이름으로.
+
+        **`operationMode` 는 계절을 모른다.** 난방이든 냉방이든 운전 중이면 1 이고,
+        무엇을 하는지는 `season` 이 정한다. 그래서 표를 그대로 쓰면 냉방 중에도
+        「난방」으로 보인다 — 실기기 제보로 확인했다(EMF520).
+
+        사계절 모델이 냉방일 때만 바꾼다. 나머지는 표 그대로다.
+        """
         mode = self.operation_mode
         if mode is None:
             return None
+        if mode == MODE_HEAT and self.is_cooling:
+            # 운전 중(1)일 때 무엇을 하는지는 `season` 이 정한다.
+            return "냉방"
         return MODE_NAMES.get(mode, f"알 수 없음({mode})")
 
     @property
@@ -359,11 +372,32 @@ class NavienDevice:
         `season` 은 자동 상태가 아니라 **사용자가 앱에서 고르는 모드**다. 앱은
         WARM / COOL 로 부르고 예약 목록도 모드별로 따로 관리한다.
 
-        **`SEASON_SUMMER`(2) 일 때만 냉방으로 본다.** 값을 실기기에서 관측한 적이
-        없으므로, 모르는 값이 오면 난방으로 두고 로그를 남긴다 — 냉방 범위를
-        잘못 적용하는 것보다 안전하다.
+        **`SEASON_SUMMER`(2) 이고 냉방 기능이 있을 때만 냉방으로 본다.**
+        모르는 값이 오면 난방으로 두고 로그를 남긴다 — 냉방 범위를 잘못 적용하는
+        것보다 안전하다.
+
+        `cool_control` 을 함께 보는 이유는, **냉방을 못 하는 기기가 `season` 을
+        보내오면 냉방으로 읽혀서** 운전 상태가 「냉방」으로 보이고 온도 범위도
+        엉뚱한 값으로 갈리기 때문이다. 그런 기기가 실제로 있는지는 모르지만,
+        없는 기능을 켜는 쪽으로 틀리지 않게 둔다.
         """
-        return self.season == SEASON_SUMMER
+        return self.season == SEASON_SUMMER and self.cool_control is not None
+
+    @property
+    def error_text(self) -> str | None:
+        """오류 코드의 이름. 모르면 `None`.
+
+        제보자가 기기 설명서에서 옮겨 준 표다. **온도형에만 붙인다** — 물탱크·
+        순환펌프·누수가 나오는 것으로 보아 온수·사계절 계열 설명서이고, 카본
+        (단계형)에 같은 번호가 같은 뜻이라는 근거가 없다.
+
+        **상태값이 아니라 속성이다.** 숫자를 쓰던 자동화를 깨지 않는다.
+        """
+        control = self.heat_control
+        if control is None or not control.is_celsius:
+            return None
+        code = self.error_code
+        return None if code is None else MAT_ERROR_NAMES.get(code)
 
     @property
     def has_unknown_season(self) -> bool:

@@ -182,17 +182,26 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
 
     @property
     def _target_zones(self) -> tuple[str, ...]:
-        """이 조작이 적용될 구역.
+        """이 조작이 적용될 구역 — **언제나 이 구역 하나다.**
 
-        **냉방에서는 좌우가 같은 온도로 동작한다** — 앱 도움말에 그렇게 적혀 있다.
-        한쪽만 보내면 반대쪽과 어긋나므로 두 구역에 같은 값을 보낸다.
+        v0.9.0~v0.11.0 은 냉방+좌우분리면 두 구역에 같은 값을 보냈다. 근거는 앱
+        안내문이었다.
 
-        엔티티는 좌/우 그대로 둔다. 냉방일 때 한쪽을 없애면 그 엔티티를 쓰던
-        자동화가 깨진다 — 어느 쪽을 만져도 양쪽이 함께 가는 편이 낫다.
+            COOL 모드 — 매트의 좌우가 같은 온도로 동작합니다
+
+        **모델 얘기를 빠뜨린 문구였다.** 나비엔 제품 페이지는 이렇게 적는다.
+
+            0.5℃ 분리 냉난방 기술로 좌우 원하는 온도로
+            해당 기능은 **사계절형 Pro 모델에만** 적용됩니다
+
+        즉 Pro 는 냉방에서도 좌우가 따로 가고 Air 는 같이 간다. **모델별 동작을
+        코드에 박아넣은 셈이었고**, 그건 이 통합이 하지 않기로 한 것이다.
+        서버가 Pro/Air 를 알려주지도 않는다.
+
+        그래서 **누르신 구역에만 보낸다.** 기기가 좌우를 묶어 도는 모델이면
+        응답으로 두 값을 같게 돌려줄 것이고, 우리는 그것을 그대로 보여준다.
+        **기기가 하는 일을 앞질러 정하지 않는다.**
         """
-        device = self.device
-        if device is not None and device.is_cooling and device.is_double:
-            return device.zones
         return (self._zone,)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:

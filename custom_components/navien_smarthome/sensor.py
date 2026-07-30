@@ -124,6 +124,19 @@ class NavienSmartErrorSensor(NavienSmartEntity, SensorEntity):
         device = self.device
         return None if device is None else device.error_code
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """오류 이름을 속성으로 붙인다.
+
+        **상태값은 숫자 그대로 둔다.** 글자로 바꾸면 이 값을 쓰던 자동화가 깨진다.
+        이름은 제보자가 기기 설명서에서 옮겨 준 표이고 온도형에만 붙는다.
+        """
+        device = self.device
+        if device is None:
+            return None
+        text = device.error_text
+        return None if text is None else {"error_text": text}
+
 
 class AironeStateSensor(AironeEntity, SensorEntity):
     """`running` 을 사람이 읽는 이름으로. 운전 / 정지 / 외출."""
