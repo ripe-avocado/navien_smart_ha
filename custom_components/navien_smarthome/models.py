@@ -482,6 +482,25 @@ class NavienDevice:
     def service_name(self) -> str:
         return SERVICE_NAMES.get(self.service_code, str(self.service_code))
 
+    def build_season_desired(self, season: int) -> dict[str, Any]:
+        """계절(난방↔냉방) 전환 desired.
+
+        **앱이 하는 것을 그대로 한다.** `MateConstants.mateMqttPayload("seasonSetting")`
+        가 만드는 것은 `Desired(event=..., season=...)` 하나뿐이고, 토픽도 우리가
+        이미 쓰는 shadow 업데이트와 같다. `event.modelCode` 는 `async_control` 이
+        모든 명령에 붙이고 있다 — 실기기로 검증된 경로다.
+
+        **값은 두 개뿐이다.** 앱 계절 설정 화면에 버튼이 둘이고
+        (`onWinterIconClick` → 0, `onSummerIconClick` → 2) 세 번째 값은 없다.
+        스마트싱스가 보여주는 `coolPlus` 는 그쪽 라벨이고 나비엔 값이 아니다 —
+        앱 문자열 전수 검색에서 0건이다.
+
+        그래서 **아는 값만 보낸다.** 모르는 값이 들어오면 거부한다.
+        """
+        if season not in SEASON_NAMES:
+            raise ValueError(f"확인된 계절 값이 아닙니다: {season}")
+        return {"season": season}
+
     def build_heater_desired(
         self,
         changes: dict[str, float] | None = None,
