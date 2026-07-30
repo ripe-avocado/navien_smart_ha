@@ -148,6 +148,13 @@ AIRONE_MODE_NAMES: Final = {
     18: "음압환기",
 }
 
+# 구세대 DID 는 **변형(option >= 2)만** 싣고 기본 조합(option 1)과
+# `supportedAirVolumes` 를 주지 않는다 — 실기기(NRT-20DSW) 확인. 그대로 두면
+# 「환기」를 고를 때 터보가 함께 나가고 풍량에 미풍·약풍·강풍이 사라진다.
+# 없는 능력을 지어내는 것이 아니라, 서버가 생략한 기본 자리를 되살린다.
+# 풍량 값은 앱 표(`AIRONE_WIND_NAMES`)를 그대로 쓴다.
+LEGACY_DEFAULT_AIR_VOLUMES: Final = (1, 2, 3, 4)
+
 # --- 구세대(에어원 `modelCode < 1000`) 상태 프레임 -------------------------
 #
 # 봉투가 `{topic, payload: {...}, serviceCode}` 이고 **`reported` 도 `roomController`

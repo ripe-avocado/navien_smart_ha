@@ -25,6 +25,7 @@ from .const import (
     AIRONE_OPTION_NAMES,
     AIRONE_OPTION_NONE,
     AIRONE_OPTION_SLEEP,
+    LEGACY_DEFAULT_AIR_VOLUMES,
     AIRONE_OPTIONS_WITH_WIND,
     AIRONE_RUN_AWAY,
     AIRONE_RUN_NAMES,
@@ -325,6 +326,7 @@ class AironeDevice:
             for mode in (AironeMode.parse(item) for item in controller.get("mode") or [])
             if mode is not None
         )
+        modes = cls._restore_legacy_base_modes(modes, raw.get("modelCode"))
 
         nick = _dig(raw, "Properties", "nickName") or {}
         nickname = (
@@ -371,6 +373,42 @@ class AironeDevice:
         )
 
     # -- 상태 반영 ----------------------------------------------------------
+
+    @staticmethod
+    def _restore_legacy_base_modes(
+        modes: tuple[AironeMode, ...], model_code: Any
+    ) -> tuple[AironeMode, ...]:
+        """구세대 DID 가 생략한 기본 조합을 되살린다.
+
+        구세대는 변형(터보·절전·숙면)만 싣고 `option 1` 자리와
+        `supportedAirVolumes` 를 주지 않는다 — 실기기(NRT-20DSW) 확인. 그대로 두면
+        `selectable_modes` 가 대표 조합으로 터보를 골라 「환기」가 터보로 나가고,
+        `fan_choices` 는 미풍·약풍·강풍을 만들지 못한다.
+
+        **능력을 지어내지 않는다.** 서버가 알려준 모드 코드에 대해서만, 앱이 모든
+        에어원에 쓰는 풍량 표를 붙여 기본 자리를 채운다.
+        """
+        code = _as_int(model_code)
+        if code is None or code >= AIRONE_V2_MIN_MODEL_CODE or not modes:
+            return modes
+
+        have = {(item.mode, item.option) for item in modes}
+        restored = list(modes)
+        for mode_code in dict.fromkeys(item.mode for item in modes):
+            if (mode_code, AIRONE_OPTION_NONE) in have:
+                continue
+            restored.append(
+                AironeMode(
+                    mode=mode_code,
+                    option=AIRONE_OPTION_NONE,
+                    air_volume=None,
+                    supported_air_volumes=LEGACY_DEFAULT_AIR_VOLUMES,
+                    configurable=True,
+                    humidity_min=None,
+                    humidity_max=None,
+                )
+            )
+        return tuple(restored)
 
     def apply_reported(self, incoming: dict[str, Any]) -> None:
         """들어온 상태를 **덮어쓰지 않고 겹쳐 쓴다.**
