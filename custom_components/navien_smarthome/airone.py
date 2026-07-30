@@ -137,7 +137,17 @@ class AironeMode:
 
     mode: int
     option: int
+    # 지금 값(또는 기본값)이다. **고를 수 있는 목록이 아니다** — 실기기 제보로
+    # 확인했다. 목록은 `supported_air_volumes` 다.
     air_volume: int | None
+    # 서버가 이 조합에서 고를 수 있는 풍량을 알려준다 (`supportedAirVolumes`).
+    # APK 클래스에는 없던 필드다. 없으면 빈 tuple.
+    supported_air_volumes: tuple[int, ...]
+    # **「이 모드를 고를 수 있는가」가 아니다.** 실기기 응답에서 `configurable: true`
+    # 인 항목은 정확히 `supportedAirVolumes` 나 `additionalData` 를 가진 것들이었다 —
+    # 즉 「이 모드 안에서 풍량·습도를 조절할 수 있는가」다.
+    # 자동운전·요리·숙면·터보·절전이 모두 false 로 오는데, 앱에서는 다 고를 수 있다.
+    # 그래서 모드 목록을 이 값으로 거르지 않는다. 진단용으로만 남긴다.
     configurable: bool
     humidity_min: int | None
     humidity_max: int | None
@@ -173,11 +183,17 @@ class AironeMode:
         option = _as_int(raw.get("option"))
         wind = _as_int(raw.get("airVolume"))
         if wind is not None and wind not in AIRONE_WIND_NAMES:
-            # 비트마스크일 수 있다. 모르는 값을 기기에 쏘지 않는다.
+            # 실기기는 「해당 없음」에 0 을 준다. 확인된 표에 없는 값은 쓰지 않는다.
             _LOGGER.debug(
                 "에어원 airVolume %s 는 확인된 값이 아니라 무시합니다 (mode=%s)", wind, mode
             )
             wind = None
+
+        supported = tuple(
+            value
+            for item in raw.get("supportedAirVolumes") or []
+            if (value := _as_int(item)) is not None and value in AIRONE_WIND_NAMES
+        )
 
         low = high = None
         for extra in raw.get("additionalData") or []:
@@ -193,7 +209,7 @@ class AironeMode:
             mode=mode,
             option=AIRONE_OPTION_NONE if option is None else option,
             air_volume=wind,
-            # 서버가 안 주면 고를 수 있는 것으로 보지 않는다.
+            supported_air_volumes=supported,
             configurable=bool(raw.get("configurable")),
             humidity_min=low,
             humidity_max=high,
@@ -428,12 +444,30 @@ class AironeDevice:
 
     @property
     def target_humidity(self) -> int | None:
-        """제습 목표 습도. `additionalData` 에서 습도 항목만 골라 읽는다."""
+        """제습 목표 습도.
+
+        **`additionalData` 의 `type: 1` 이 습도라는 보장이 없다.** 실기기 응답을 보면
+        같은 `type: 1` 이 자리마다 뜻이 다르다 — 제습 모드 안에서는 40~65(습도)인데
+        컨트롤러 수준에서는 0~4 다. 환기 중인 기기에서 `1` 을 습도로 읽어
+        슬라이더가 맨 왼쪽에 붙는 일이 있었다.
+
+        그래서 **서버가 알려준 그 모드의 범위 안에 있을 때만** 습도로 인정한다.
+        범위를 안 주는 모드(환기·청정 등)에서는 값이 있어도 쓰지 않는다.
+        """
+        bounds = self.humidity_bounds(self.mode, self.option)
+        if bounds is None:
+            return None
         for extra in self._controller.get("additionalData") or []:
             if not isinstance(extra, dict):
                 continue
-            if _as_int(extra.get("type")) == AIRONE_HUMIDITY_TYPE:
-                return _as_int(extra.get("value"))
+            if _as_int(extra.get("type")) != AIRONE_HUMIDITY_TYPE:
+                continue
+            value = _as_int(extra.get("value"))
+            if value is not None and bounds[0] <= value <= bounds[1]:
+                return value
+            _LOGGER.debug(
+                "에어원 습도 %s 가 서버 범위 %s 를 벗어나 쓰지 않습니다", value, bounds
+            )
         return None
 
     @property
@@ -462,6 +496,11 @@ class AironeDevice:
 
     @property
     def configurable_modes(self) -> tuple[AironeMode, ...]:
+        """서버가 「조절 가능」이라고 표시한 조합. 진단용이다.
+
+        **모드 목록을 이것으로 거르지 않는다** — `configurable` 은 모드를 고를 수
+        있는지가 아니라 그 안에서 풍량·습도를 조절할 수 있는지를 뜻한다.
+        """
         return tuple(item for item in self.modes if item.configurable)
 
     @property
@@ -477,7 +516,7 @@ class AironeDevice:
         result: list[AironeModeChoice] = []
         seen: set[tuple[int, int]] = set()
 
-        for item in self.configurable_modes:
+        for item in self.modes:
             if item.option == AIRONE_OPTION_SLEEP:
                 key = (item.mode, AIRONE_OPTION_SLEEP)
                 label = AIRONE_MODE_SLEEP_LABEL
@@ -485,7 +524,7 @@ class AironeDevice:
                 # 그 모드의 대표 option — 1 이 있으면 1, 없으면 처음 나온 것.
                 options = [
                     other.option
-                    for other in self.configurable_modes
+                    for other in self.modes
                     if other.mode == item.mode and other.option != AIRONE_OPTION_SLEEP
                 ]
                 option = AIRONE_OPTION_NONE if AIRONE_OPTION_NONE in options else options[0]
@@ -530,7 +569,13 @@ class AironeDevice:
         result: list[AironeFanChoice] = []
         seen: set[str] = set()
 
-        for item in self.configurable_modes:
+        def add(opt: int, wind: int | None, label: str | None) -> None:
+            if not label or label in seen:
+                return
+            seen.add(label)
+            result.append(AironeFanChoice(opt, wind, label))
+
+        for item in self.modes:
             if item.mode != mode:
                 continue
             if sleeping != (item.option == AIRONE_OPTION_SLEEP):
@@ -538,15 +583,15 @@ class AironeDevice:
                 continue
 
             if item.option in AIRONE_OPTIONS_WITH_WIND:
-                if item.air_volume is None:
-                    continue
-                label = AIRONE_WIND_NAMES.get(item.air_volume)
+                # **`supportedAirVolumes` 가 고를 수 있는 목록이다.** `airVolume` 은
+                # 지금 값이라 그것만 보면 항목이 하나로 줄어든다 (실기기 제보에서
+                # 「자동」만 나오던 원인).
+                for value in item.supported_air_volumes or (
+                    (item.air_volume,) if item.air_volume is not None else ()
+                ):
+                    add(item.option, value, AIRONE_WIND_NAMES.get(value))
             else:
-                label = AIRONE_OPTION_NAMES.get(item.option)
-            if not label or label in seen:
-                continue
-            seen.add(label)
-            result.append(AironeFanChoice(item.option, item.air_volume, label))
+                add(item.option, item.air_volume, AIRONE_OPTION_NAMES.get(item.option))
         return tuple(result)
 
     def current_fan_label(self) -> str | None:

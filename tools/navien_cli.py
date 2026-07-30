@@ -884,7 +884,7 @@ def cmd_airone_modes(args: argparse.Namespace) -> int:
         return 0
 
     print(f"운전 조합 {len(modes)}개:")
-    print(f"  {'mode':>5} {'option':>7} {'airVolume':>10} {'고를수있음':>10}  라벨")
+    print(f"  {'mode':>5} {'option':>7} {'지금풍량':>10} {'고를수있는풍량':>18}  라벨")
     for item in modes:
         wind = item.get("airVolume")
         wind_txt = f"{wind}"
@@ -892,20 +892,25 @@ def cmd_airone_modes(args: argparse.Namespace) -> int:
             wind_txt = f"{wind}({AIRONE_WIND_NAMES[wind]})"
         elif wind is not None:
             wind_txt = f"{wind}(?)"
+        # `supportedAirVolumes` 가 고를 수 있는 목록이다. `airVolume` 은 지금 값이다.
+        supported = item.get("supportedAirVolumes") or []
+        sup_txt = ",".join(
+            f"{v}({AIRONE_WIND_NAMES.get(v, '?')})" for v in supported
+        ) or "-"
         print(f"  {_fmt(item.get('name')):>5} {_fmt(item.get('option')):>7} {wind_txt:>10} "
-              f"{str(bool(item.get('configurable'))):>10}  "
+              f"{sup_txt:>18}  "
               f"{_airone_mode_label(item.get('name'), item.get('option'))}")
         for extra in item.get("additionalData") or []:
             print(f"        additionalData type={extra.get('type')} "
                   f"min={extra.get('min')} max={extra.get('max')} value={extra.get('value')}")
 
     unknown = sorted({w for i in modes
-                      if (w := i.get("airVolume")) is not None and w not in AIRONE_WIND_NAMES})
+                      if (w := i.get("airVolume")) not in (None, 0)
+                      and w not in AIRONE_WIND_NAMES})
     if unknown:
         print()
         print(f"※ 확인되지 않은 airVolume 값: {unknown}")
-        print("  단일값이 아니라 비트마스크일 수 있다. 통합은 이 값을 보내지 않는다.")
-        print("  이 출력을 이슈에 붙여 주시면 판정할 수 있다.")
+        print("  통합은 이 값을 보내지 않는다. 이 출력을 이슈에 붙여 주면 판정할 수 있다.")
 
     sensors = rc.get("sensor") or []
     if sensors:
@@ -988,8 +993,14 @@ def cmd_airone_control(args: argparse.Namespace) -> int:
 
         controller = {"mode": args.mode, "option": option}
         if args.wind is not None:
-            allowed = sorted({w for m in matching
-                              if (w := m.get("airVolume")) in AIRONE_WIND_NAMES})
+            allowed = set()
+            for m in matching:
+                for v in m.get("supportedAirVolumes") or []:
+                    if v in AIRONE_WIND_NAMES:
+                        allowed.add(v)
+                if not m.get("supportedAirVolumes") and m.get("airVolume") in AIRONE_WIND_NAMES:
+                    allowed.add(m["airVolume"])
+            allowed = sorted(allowed)
             if args.wind not in allowed:
                 raise NavienError(
                     f"풍량 {args.wind} 는 이 조합에서 서버가 알려준 값이 아니다.\n"

@@ -40,6 +40,35 @@ _ATTEMPT_RE = re.compile(r"현재 (\d)회")
 _MESSAGE_MARKER = "var message = "
 
 
+def extract_airs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """`/air-sensor` 응답에서 공기질 항목 목록을 꺼낸다.
+
+    실기기 제보로 확인한 형태:
+        `data.sensorList[]` → `{ zoneId, updateTime, airMonitor{}, airs[] }`
+
+    처음에 `data.airs` 로 짐작했다가 **값을 하나도 못 읽었다.** 에어모니터가 붙어
+    있는데도 공기질 센서가 안 생기던 원인이다. 존이 여럿일 수 있어 목록을 모두
+    훑고, 앞선 짐작도 폴백으로 남긴다.
+    """
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return []
+
+    airs: list[dict[str, Any]] = []
+    for entry in data.get("sensorList") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("airs"), list):
+            airs.extend(item for item in entry["airs"] if isinstance(item, dict))
+    if airs:
+        return airs
+
+    if isinstance(data.get("airs"), list):
+        return [item for item in data["airs"] if isinstance(item, dict)]
+    for value in data.values():
+        if isinstance(value, dict) and isinstance(value.get("airs"), list):
+            return [item for item in value["airs"] if isinstance(item, dict)]
+    return []
+
+
 class NavienSmartError(Exception):
     """통합 내부 공통 예외."""
 
@@ -411,13 +440,4 @@ class NavienSmartApi:
             f"/devices/{device_seq}/air-sensor",
             params={"homeSeq": home_seq, "userSeq": session.user_seq},
         )
-        data = payload.get("data")
-        if isinstance(data, dict):
-            airs = data.get("airs")
-            if isinstance(airs, list):
-                return airs
-            # 존이 여럿이면 목록으로 감싸 온다.
-            for value in data.values():
-                if isinstance(value, dict) and isinstance(value.get("airs"), list):
-                    return value["airs"]
-        return []
+        return extract_airs(payload)

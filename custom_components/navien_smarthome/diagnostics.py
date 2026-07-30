@@ -186,8 +186,12 @@ def _airone_view(device: Any) -> dict[str, Any]:
             }
             for kind in device.sensor_kinds
         },
-        # 공기모니터를 별도 기기로 만들어야 하는지 판정할 근거다 (명세 6-6).
-        "air_monitors": list(device.air_monitors),
+        # **직접 만든 표에도 가림을 적용한다.** `supported_devices` 는
+        # `async_redact_data` 를 지나지만 이 표는 우리가 조립하므로 그냥 두면
+        # 에어모니터 `deviceId` 가 그대로 나간다 — 실제로 나갔다.
+        "air_monitors": [
+            async_redact_data(monitor, TO_REDACT) for monitor in device.air_monitors
+        ],
         "modes_from_server": [
             {
                 "mode": mode.mode,
