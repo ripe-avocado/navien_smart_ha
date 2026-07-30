@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "나비엔 스마트",
+        "description": "나비엔 스마트 앱 계정으로 로그인합니다.",
+        "data": {
+          "username": "아이디",
+          "password": "비밀번호"
+        }
+      },
+      "home": {
+        "title": "공간 선택",
+        "description": "연동할 공간을 고릅니다.",
+        "data": {
+          "home_seq": "공간"
+        }
+      },
+      "reauth_confirm": {
+        "title": "다시 로그인",
+        "description": "{username} 계정의 비밀번호를 다시 입력해 주세요.",
+        "data": {
+          "password": "비밀번호"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "아이디 또는 비밀번호가 올바르지 않습니다.",
+      "cannot_connect": "나비엔 서버에 연결하지 못했습니다."
+    },
+    "abort": {
+      "already_configured": "이 계정은 이미 등록되어 있습니다.",
+      "reauth_successful": "다시 로그인했습니다."
+    }
+  },
+  "entity": {
+    "switch": {
+      "power": {
+        "name": "전원"
+      }
+    }
+  }
+}

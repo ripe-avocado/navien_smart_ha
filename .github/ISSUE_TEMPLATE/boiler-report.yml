@@ -1,0 +1,85 @@
+name: 보일러 제보
+description: 보일러를 쓰고 계시면 이 양식으로 제보해 주세요. 자료를 모으는 단계입니다.
+labels: ["보일러", "제보"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **보일러는 아직 지원하지 않고, 언제 되는지 약속할 수 없습니다.**
+
+        매트와 달리 상태 모델이 컨트롤러 종류별로 갈리고, 각방 제어가 비트마스크로
+        인코딩되어 있습니다. 잘못 재현하면 실제 난방에 엉뚱한 값이 갑니다.
+        그래서 시간이 걸립니다.
+
+        그래도 **자료는 모으고 있습니다.** 제보가 쌓이면 어느 모델부터
+        가능한지 판단할 수 있습니다. 진단 파일 하나만 붙여 주시면 됩니다.
+        기기ID·IP·MAC·별칭은 **자동으로 가려집니다.**
+
+  - type: input
+    id: model
+    attributes:
+      label: 모델명
+      description: 보일러 본체나 앱 기기목록에 적힌 이름입니다.
+      placeholder: 예) NR-67D, NRM-35D, NR-31D
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 종류
+      description: 각방 제어가 되는 모델인지가 난이도를 크게 가릅니다.
+      options:
+        - 일반 보일러 (방마다 온도를 따로 못 맞춤)
+        - 각방 보일러 (방마다 온도를 따로 맞춤)
+        - 공기열 보일러
+        - 잘 모르겠습니다
+    validations:
+      required: true
+
+  - type: input
+    id: rooms
+    attributes:
+      label: 각방이면 방 개수
+      placeholder: 예) 4
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 진단 정보
+      description: |
+        설정 → 기기 및 서비스 → **나비엔 스마트** → ⋮ → `진단 정보 다운로드`
+
+        내려받은 `.json` 파일을 이 칸에 끌어다 놓거나 내용을 붙여 주세요.
+        `report_wanted_devices` 항목에 보일러 정보가 들어 있습니다.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: app_features
+    attributes:
+      label: 앱에서 되는 기능
+      placeholder: |
+        예)
+        - 난방 / 온수 전환
+        - 실내온도 설정, 온수 온도 설정
+        - 외출 모드, 예약
+        - 가스 사용량 표시
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: understood
+    attributes:
+      label: 확인
+      options:
+        - label: >-
+            지원 시점을 약속받지 않는다는 것을 이해했습니다.
+          required: true
+        - label: >-
+            제어 값을 확정하려면 실기기에 명령을 보내 확인해야 합니다.
+            요청하면 도와주실 수 있습니다.
+          required: false

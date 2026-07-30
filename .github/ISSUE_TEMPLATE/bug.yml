@@ -1,0 +1,80 @@
+name: 버그 신고
+description: 매트가 이미 연동됐는데 동작이 이상할 때
+labels: ["버그"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        진단 파일과 로그 두 개만 붙여 주시면 대부분 원인이 나옵니다.
+        기기ID·IP·MAC·별칭은 진단 파일에서 **자동으로 가려집니다.**
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 무슨 일이 있었나요
+      placeholder: |
+        예) 단계를 5로 바꿨는데 HA 에는 3으로 남아 있습니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 어떻게 되어야 하나요
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: 통합 버전
+      description: HACS 또는 설정 → 기기 및 서비스에서 확인할 수 있습니다.
+      placeholder: 예) 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant 버전
+      placeholder: 예) 2026.7.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 진단 정보
+      description: |
+        설정 → 기기 및 서비스 → **나비엔 스마트** → ⋮ → `진단 정보 다운로드`
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그
+      description: |
+        `configuration.yaml` 에 아래를 넣고 재시작하면 자세한 로그가 남습니다.
+
+        ```yaml
+        logger:
+          logs:
+            custom_components.navien_smart: debug
+        ```
+
+        설정 → 시스템 → 로그 에서 `navien_smart` 부분을 붙여 주세요.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: app_check
+    attributes:
+      label: 확인해 보셨나요
+      options:
+        - label: >-
+            나비엔 앱을 닫은 상태에서도 같은 증상이 나옵니다.
+            (계정당 세션이 하나라 앱을 켜두면 HA 가 밀려납니다)
+          required: false

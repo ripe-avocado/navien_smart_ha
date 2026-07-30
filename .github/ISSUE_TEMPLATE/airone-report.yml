@@ -1,0 +1,73 @@
+name: 환기청정(에어원) 제보
+description: 에어원을 쓰고 계시면 이 양식으로 제보해 주세요. 지원 작업의 시작점이 됩니다.
+labels: ["환기청정", "제보"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **에어원은 아직 지원하지 않습니다.** 매트와 통신 방식이 달라서
+        (서버가 지정한 요청/응답 토픽 + 패킷 구조) 실기기 정보가 필요합니다.
+
+        아래 진단 파일 하나만 붙여 주시면 됩니다. 기기ID·IP·MAC·별칭은
+        **자동으로 가려집니다.**
+
+  - type: input
+    id: model
+    attributes:
+      label: 모델명
+      description: 기기 본체나 앱 기기목록에 적힌 이름입니다.
+      placeholder: 예) NRT530-ZCW, NRT-20DS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 종류
+      options:
+        - 환기청정기
+        - 제습 환기청정기
+        - 잘 모르겠습니다
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 진단 정보
+      description: |
+        설정 → 기기 및 서비스 → **나비엔 스마트** → ⋮ → `진단 정보 다운로드`
+
+        내려받은 `.json` 파일을 이 칸에 끌어다 놓거나 내용을 붙여 주세요.
+        `report_wanted_devices` 항목에 에어원 정보가 들어 있습니다.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: app_features
+    attributes:
+      label: 앱에서 되는 기능
+      description: |
+        앱 화면에 보이는 것을 적어 주세요. 어떤 엔티티를 만들지 정하는 데 씁니다.
+      placeholder: |
+        예)
+        - 모드: 청정 / 환기 / 환기제습 / 숙면
+        - 풍량 3단계
+        - 각방 제어 있음 (방 4개)
+        - 필터 사용시간 표시
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: 확인 협조
+      options:
+        - label: >-
+            제어 값을 확정하려면 실기기에 명령을 보내 확인해야 합니다.
+            요청하면 도와주실 수 있습니다.
+          required: false
+        - label: >-
+            제어 확인 없이 상태 표시(읽기 전용)만이라도 괜찮습니다.
+          required: false

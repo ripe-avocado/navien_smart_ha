@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Navien Smart",
+        "description": "Sign in with your Navien Smart app account.",
+        "data": {
+          "username": "ID",
+          "password": "Password"
+        }
+      },
+      "home": {
+        "title": "Select space",
+        "description": "Choose the space to integrate.",
+        "data": {
+          "home_seq": "Space"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Re-enter the password for {username}.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid ID or password.",
+      "cannot_connect": "Could not reach the Navien server."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Signed in again."
+    }
+  },
+  "entity": {
+    "switch": {
+      "power": {
+        "name": "Power"
+      }
+    }
+  }
+}

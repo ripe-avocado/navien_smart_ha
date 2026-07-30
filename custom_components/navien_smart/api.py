@@ -1,0 +1,343 @@
+"""나비엔 스마트 REST 클라이언트.
+
+인증 흐름은 두 단계다.
+
+1. `member.naviensmartcontrol.com/member/login` 폼 POST — 쿠키를 물고 리다이렉트를
+   따라간 뒤 HTML 의 `var message = {...}` 에서 토큰을 긁는다.
+2. `POST /users/secured-sign-in` — home 목록과 **AWS IoT 임시 자격증명**을 받는다.
+
+`accountSeq` 는 1단계 응답의 `userSeq` 이고, 2단계 응답의 `userInfo.userSeq` 와는
+다른 값이다. 헷갈리기 쉬우니 이름을 구분해 둔다.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+from dataclasses import dataclass
+from typing import Any
+
+import aiohttp
+
+from .const import (
+    API_URL,
+    CODE_NOT_AUTHORIZED,
+    CODE_SUCCESS,
+    CODE_TOKEN_EXPIRED,
+    LOGIN_URL,
+    USER_AGENT,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+_FAIL_POPUP = 'id="loginFailPopup" style="display:none;"'
+_MISMATCH = "입력한 정보가 일치하지 않습니다."
+_ATTEMPT_RE = re.compile(r"현재 (\d)회")
+_MESSAGE_MARKER = "var message = "
+
+
+class NavienSmartError(Exception):
+    """통합 내부 공통 예외."""
+
+
+class NavienSmartAuthError(NavienSmartError):
+    """자격증명이 잘못되었거나 세션이 무효해진 경우."""
+
+
+class NavienSmartApiError(NavienSmartError):
+    """서버가 성공이 아닌 code 를 돌려준 경우."""
+
+    def __init__(self, code: int | None, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(slots=True)
+class AwsCredentials:
+    """AWS IoT 접속용 임시 자격증명."""
+
+    access_key_id: str
+    secret_key: str
+    session_token: str
+
+    @classmethod
+    def from_auth_info(cls, info: dict[str, Any]) -> AwsCredentials | None:
+        try:
+            return cls(info["accessKeyId"], info["secretKey"], info["sessionToken"])
+        except KeyError:
+            return None
+
+
+@dataclass(slots=True)
+class NavienSmartSession:
+    """로그인 결과. `home_seq` 는 사용자가 고른 값으로 덮어쓸 수 있다."""
+
+    access_token: str
+    refresh_token: str | None
+    user_id: str
+    account_seq: int
+    user_seq: int
+    homes: list[dict[str, Any]]
+    aws: AwsCredentials | None
+
+
+class NavienSmartApi:
+    """REST 호출을 담당한다. MQTT 는 `mqtt.py` 가 맡는다."""
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        username: str,
+        password: str,
+    ) -> None:
+        self._http = session
+        self._username = username
+        self._password = password
+        self._session: NavienSmartSession | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def session(self) -> NavienSmartSession | None:
+        return self._session
+
+    # -- 인증 --------------------------------------------------------------
+
+    async def async_login(self) -> NavienSmartSession:
+        """1·2단계를 모두 수행하고 세션을 갈아끼운다."""
+        async with self._lock:
+            login = await self._async_form_login()
+            data = await self._async_secured_sign_in(
+                login["accessToken"], login["loginId"], login["userSeq"]
+            )
+
+            homes = data.get("home") or []
+            if not homes:
+                raise NavienSmartAuthError("계정에 등록된 home 이 없습니다.")
+
+            self._session = NavienSmartSession(
+                access_token=login["accessToken"],
+                refresh_token=login.get("refreshToken"),
+                user_id=login["loginId"],
+                account_seq=login["userSeq"],
+                user_seq=data["userInfo"]["userSeq"],
+                homes=homes,
+                aws=AwsCredentials.from_auth_info(data.get("authInfo") or {}),
+            )
+            _LOGGER.debug(
+                "로그인 완료: userSeq=%s home %s개",
+                self._session.user_seq,
+                len(homes),
+            )
+            return self._session
+
+    async def _async_form_login(self) -> dict[str, Any]:
+        """폼 로그인. 쿠키 세션이 필요하므로 전용 ClientSession 을 받아 쓴다."""
+        try:
+            async with self._http.post(
+                f"{LOGIN_URL}/member/login",
+                data={"username": self._username, "password": self._password},
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Origin": LOGIN_URL,
+                    "Referer": f"{LOGIN_URL}/member/login",
+                },
+                allow_redirects=True,
+            ) as resp:
+                html = await resp.text()
+        except aiohttp.ClientError as err:
+            raise NavienSmartError(f"로그인 요청 실패: {err}") from err
+
+        if _FAIL_POPUP in html:
+            raise self._auth_error_from_html(html)
+
+        if "passwordChg" in html:
+            # 계정 상태를 바꾸는 요청(`/pwchgLate`)은 통합이 대신 하지 않는다.
+            raise NavienSmartAuthError(
+                "서버가 비밀번호 변경을 요구합니다. 앱이나 웹에서 먼저 처리해 주세요."
+            )
+
+        token_json = self._extract_message_json(html)
+        if token_json is None:
+            raise NavienSmartAuthError("로그인 응답에서 토큰을 찾지 못했습니다.")
+        return token_json
+
+    @staticmethod
+    def _auth_error_from_html(html: str) -> NavienSmartAuthError:
+        if _MISMATCH not in html:
+            return NavienSmartAuthError("아이디가 올바르지 않습니다.")
+        match = _ATTEMPT_RE.search(html)
+        if match:
+            return NavienSmartAuthError(
+                f"비밀번호가 올바르지 않습니다. 5회 실패하면 재설정이 필요합니다 "
+                f"(현재 {match.group(1)}회)."
+            )
+        return NavienSmartAuthError(
+            "비밀번호가 올바르지 않습니다. 재설정이 필요할 수 있습니다."
+        )
+
+    @staticmethod
+    def _extract_message_json(html: str) -> dict[str, Any] | None:
+        for line in html.splitlines():
+            if _MESSAGE_MARKER not in line:
+                continue
+            start = line.find("{")
+            end = line.rfind("}")
+            if start == -1 or end <= start:
+                continue
+            try:
+                return json.loads(line[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+        return None
+
+    async def _async_secured_sign_in(
+        self, access_token: str, user_id: str, account_seq: int
+    ) -> dict[str, Any]:
+        payload = await self._async_request(
+            "POST",
+            "/users/secured-sign-in",
+            token=access_token,
+            json_body={"userId": user_id, "accountSeq": account_seq},
+        )
+        data = payload.get("data")
+        if not data:
+            raise NavienSmartAuthError("secured-sign-in 응답에 data 가 없습니다.")
+        return data
+
+    async def async_refresh_aws_credentials(self) -> AwsCredentials | None:
+        """AWS 자격증명을 다시 받는다.
+
+        `/auth/token/refresh` 는 accessToken 만 주고 AWS 자격증명을 주지 않는다.
+        따라서 `secured-sign-in` 을 다시 부르는 것이 유일한 경로다 — 실측 확인.
+        """
+        session = self._require_session()
+        data = await self._async_secured_sign_in(
+            session.access_token, session.user_id, session.account_seq
+        )
+        session.aws = AwsCredentials.from_auth_info(data.get("authInfo") or {})
+        return session.aws
+
+    # -- 요청 --------------------------------------------------------------
+
+    def _require_session(self) -> NavienSmartSession:
+        if self._session is None:
+            raise NavienSmartError("먼저 async_login() 을 호출해야 합니다.")
+        return self._session
+
+    async def _async_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        raw_body: str | None = None,
+    ) -> dict[str, Any]:
+        headers = {"Authorization": token, "User-Agent": USER_AGENT}
+        data: bytes | None = None
+        if raw_body is not None:
+            headers["Content-Type"] = "application/json"
+            data = raw_body.encode()
+        elif json_body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(json_body).encode()
+
+        try:
+            async with self._http.request(
+                method,
+                f"{API_URL}{path}",
+                params=params,
+                headers=headers,
+                data=data,
+            ) as resp:
+                text = await resp.text()
+        except aiohttp.ClientError as err:
+            raise NavienSmartError(f"{path} 요청 실패: {err}") from err
+
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as err:
+            raise NavienSmartError(f"{path} 응답이 JSON 이 아닙니다.") from err
+
+        code = payload.get("code")
+        if code == CODE_SUCCESS:
+            return payload
+        raise NavienSmartApiError(code, payload.get("msg") or f"{path} 실패 (code={code})")
+
+    async def _async_authed_request(
+        self, method: str, path: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        """토큰 만료·세션 탈취를 만나면 한 번 재로그인하고 재시도한다.
+
+        계정당 세션이 하나뿐이라, 사용자가 앱을 열면 `404` 가 온다. 흔한 일이므로
+        조용히 복구한다.
+        """
+        session = self._require_session()
+        try:
+            return await self._async_request(method, path, token=session.access_token, **kwargs)
+        except NavienSmartApiError as err:
+            if err.code not in (CODE_TOKEN_EXPIRED, CODE_NOT_AUTHORIZED):
+                raise
+            _LOGGER.debug("세션 무효(code=%s) — 재로그인 후 재시도", err.code)
+            home_seq = session.homes[0].get("homeSeq") if session.homes else None
+            refreshed = await self.async_login()
+            # 사용자가 고른 home 을 유지한다.
+            if home_seq is not None:
+                refreshed.homes.sort(key=lambda h: h.get("homeSeq") != home_seq)
+            return await self._async_request(
+                method, path, token=refreshed.access_token, **kwargs
+            )
+
+    # -- 기기 --------------------------------------------------------------
+
+    async def async_get_devices(self, home_seq: int) -> list[dict[str, Any]]:
+        session = self._require_session()
+        payload = await self._async_authed_request(
+            "GET",
+            "/devices",
+            params={"homeSeq": home_seq, "userSeq": session.user_seq},
+        )
+        return (payload.get("data") or {}).get("devices") or []
+
+    async def async_control(
+        self,
+        home_seq: int,
+        device: dict[str, Any],
+        desired: dict[str, Any],
+    ) -> None:
+        """`desired` 를 shadow 로 중계한다.
+
+        `event.modelCode` 는 모든 명령에 붙는다. `beep` 는 붙이지 않는다 —
+        앱은 2024년 이후 모델에만 붙이고, 없어도 동작하는 것을 실측으로 확인했다.
+        """
+        session = self._require_session()
+        device_seq = device["deviceSeq"]
+        topic = f"$aws/things/{device['deviceId']}/shadow/name/status/update"
+
+        body_obj = {
+            "serviceCode": device["serviceCode"],
+            "topic": "\x00TOPIC\x00",
+            "payload": {
+                "state": {
+                    "desired": {
+                        "event": {"modelCode": int(device["modelCode"])},
+                        **desired,
+                    }
+                }
+            },
+        }
+        # 앱은 topic 의 '/' 를 '\/' 로 이스케이프해 보낸다. 서버가 까다로울 수 있어 맞춘다.
+        raw = json.dumps(body_obj, ensure_ascii=False).replace(
+            '"\\u0000TOPIC\\u0000"', json.dumps(topic).replace("/", "\\/")
+        )
+
+        _LOGGER.debug("제어 전송 deviceSeq=%s desired=%s", device_seq, desired)
+        await self._async_authed_request(
+            "POST",
+            f"/devices/{device_seq}/control",
+            params={"homeSeq": home_seq, "userSeq": session.user_seq},
+            raw_body=raw,
+        )

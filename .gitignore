@@ -1,0 +1,34 @@
+# APK 원본 / 디컴파일 산출물
+apk/
+tmp/
+work/
+*.apk
+*.dex
+
+# 리버싱 작업 노트 (api-spec.md 등). 공개하지 않는다
+notes/
+
+# 캡처·덤프
+capture/
+*.har
+*.pcap
+*.pcapng
+
+# 자격증명
+.env
+.navien_cli.json
+*credentials*.json
+*token*.json
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# 작업 지시서 (개인 정보 포함)
+CLAUDE.md
+.claude/
