@@ -163,6 +163,22 @@ def _airone_view(device: Any) -> dict[str, Any]:
         "model_name": device.model_name,
         "odu_model_code": device.odu_model_code,
         "is_v2_generation": device.is_v2_generation,
+        # **「상태가 안 온다」와 「와도 못 붙인다」를 가리는 값들.** 값을 담지 않고
+        # 관계와 유무만 담는다.
+        #
+        # 토픽에 쓰는 식별자가 기기목록의 것과 같은지 — 올인원 룸콘과 분리형이
+        # 여기서 갈릴 수 있다. 가림 때문에 두 ID 를 눈으로 비교할 수 없어서
+        # 같은지 여부를 따로 적는다.
+        "physical_id_same_as_device_id": (
+            device.physical_device_id == device.device_id
+        ),
+        # 상태가 한 번이라도 도착했는지, 어느 묶음이 왔는지.
+        "reported_received": bool(device.reported),
+        "reported_keys": sorted(device.reported or {}),
+        "reported_room_controller_keys": sorted(
+            (device.reported or {}).get("roomController") or {}
+        ),
+        "last_humidity_remembered": device.last_humidity,
         "available": device.available,
         "zone_id": device.zone_id,
         "running": device.running,

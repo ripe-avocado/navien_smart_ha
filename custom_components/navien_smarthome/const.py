@@ -107,6 +107,10 @@ AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
 # **낙관적 갱신 대신 쓰는 장치다** — 실패를 성공처럼 보이게 하지 않는다.
 AIRONE_READBACK_DELAY_SECONDS: Final = 3
 
+# 상태를 요청한 뒤 이만큼 지나도 응답이 없으면 로그로 알린다. 매트 실측 왕복이
+# 1.4초였으니 넉넉하다 — 조용한 실패를 사용자가 알 수 있어야 한다.
+AIRONE_SILENCE_CHECK_SECONDS: Final = 45
+
 # `running` — V2.1 세대. 레거시는 반대(운전=2)다. 세대를 안 가리면 전원이 뒤집힌다.
 AIRONE_RUN_ON: Final = 1
 AIRONE_RUN_OFF: Final = 2

@@ -277,6 +277,10 @@ class AironeDevice:
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
     reported: dict[str, Any] = field(repr=False, default_factory=dict)
     air_sensors: dict[str, dict[str, Any]] = field(repr=False, default_factory=dict)
+    # 제습 모드를 벗어나면 기기가 습도를 더 이상 보고하지 않는다. 다시 제습으로
+    # 들어갈 때 이 값을 실어 보내지 않으면 **기기가 자기 최소값으로 되돌린다** —
+    # 실사용 제보로 확인했다(설정해두고 모드를 왕복하면 40% 로 초기화).
+    last_humidity: int | None = field(repr=False, default=None)
 
     # -- 생성 --------------------------------------------------------------
 
@@ -496,6 +500,7 @@ class AironeDevice:
                 continue
             value = _as_int(extra.get("value"))
             if value is not None and bounds[0] <= value <= bounds[1]:
+                self.last_humidity = value
                 return value
             _LOGGER.debug(
                 "에어원 습도 %s 가 서버 범위 %s 를 벗어나 쓰지 않습니다", value, bounds
@@ -742,16 +747,23 @@ class AironeDevice:
         if wind is not None:
             controller["airVolume"] = wind
 
+        # **들어갈 모드**의 범위를 본다. `self.target_humidity` 는 「지금 모드」를
+        # 기준으로 읽으므로, 환기에서 제습으로 넘어가는 순간에는 항상 `None` 이다.
+        # 그것만 보고 습도를 안 실어 보내면 기기가 자기 최소값으로 되돌린다.
         target = humidity
         bounds = self.humidity_bounds(mode, option)
         if target is None and bounds is not None:
-            current = self.target_humidity
-            if current is not None and bounds[0] <= current <= bounds[1]:
-                target = current
+            for candidate in (self.target_humidity, self.last_humidity):
+                if candidate is not None and bounds[0] <= candidate <= bounds[1]:
+                    target = candidate
+                    break
         if target is not None and bounds is not None:
+            target = max(bounds[0], min(bounds[1], target))
+            # 다음 왕복에서도 쓴다.
+            self.last_humidity = target
             controller["additionalData"] = {
                 "type": AIRONE_HUMIDITY_TYPE,
-                "value": max(bounds[0], min(bounds[1], target)),
+                "value": target,
             }
 
         return {"roomController": controller}

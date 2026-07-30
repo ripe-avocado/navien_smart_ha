@@ -152,7 +152,22 @@ def extract_airone_reported(
     if not isinstance(reported, dict):
         # 명령을 접수했다는 응답일 수 있다. 상태가 아니면 쓰지 않는다.
         return None
-    if not any(key in reported for key in ("roomController", "odu", "airMonitor")):
+    # `idu`(실내기)도 받는다. 올인원 룸콘은 룸콘과 실내기가 한 덩어리라 상태를
+    # 이쪽으로 올릴 가능성이 있다 — `did` 에 이 필드가 실재한다.
+    # 값을 해석하지는 않는다. 받아서 진단에 담아 어떤 모양인지 보고 판단한다.
+    if not any(
+        key in reported for key in ("roomController", "odu", "airMonitor", "idu")
+    ):
+        # **조용히 버리지 않는다.** 이걸 DEBUG 로 두었더니 기본 설치에서 아무 흔적이
+        # 남지 않아, 상태가 안 오는 원인을 제보로도 가릴 수 없었다.
+        # 키 이름만 남긴다 — 값은 남기지 않는다.
+        _LOGGER.warning(
+            "에어원 상태 메시지의 모양을 알지 못해 쓰지 못했습니다 "
+            "(topic 끝=%s, 최상위 키=%s). 이 로그를 이슈에 붙여 주시면 "
+            "바로 넓힐 수 있습니다.",
+            topic.rsplit("/", 1)[-1],
+            sorted(reported),
+        )
         return None
 
     # `{homeSeq}/airone/{deviceId}` 의 마지막 조각이 기기목록의 deviceId 다.

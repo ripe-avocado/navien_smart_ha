@@ -28,6 +28,8 @@ from .const import (
     AIRONE_CMD_POWER,
     AIRONE_CMD_STATUS,
     AIRONE_READBACK_DELAY_SECONDS,
+    AIRONE_SILENCE_CHECK_SECONDS,
+    AIRONE_TOPIC_FMT,
     AIRONE_UPDATE_INTERVAL_SECONDS,
     DOMAIN,
     OUT_OF_SCOPE_REASONS,
@@ -226,6 +228,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             device.reported = old.reported
             device.air_sensors = old.air_sensors
             device.sensor_kinds = old.sensor_kinds
+            device.last_humidity = old.last_humidity
 
         self._log_airone_unverified(device)
         return device
@@ -396,6 +399,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 _LOGGER.debug("%s 에 초기 상태를 요청했습니다", airone.nickname)
             except NavienSmartError as err:
                 _LOGGER.warning("%s 초기 상태 요청 실패: %s", airone.nickname, err)
+                continue
+            self._schedule_airone_silence_check(airone)
 
     async def async_stop_mqtt(self) -> None:
         if self._mqtt is not None:
@@ -493,6 +498,43 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         except NavienSmartAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         self._schedule_airone_readback(device)
+
+    @callback
+    def _schedule_airone_silence_check(self, device: AironeDevice) -> None:
+        """상태를 요청했는데 끝내 안 오면 알린다.
+
+        **조용한 실패가 가장 잡기 어렵다.** 요청은 성공(HTTP 200)했는데 응답이
+        오지 않으면 엔티티가 영구히 「알 수 없음」으로 남고, 사용자는 통합이
+        고장난 줄 안다. 어디까지 갔는지 로그에 남겨야 제보로 가릴 수 있다.
+        """
+        device_id = device.device_id
+
+        async def _check(_now: Any) -> None:
+            target = self.airone.get(device_id)
+            if target is None or target.reported:
+                return
+            key = f"{target.device_seq}:silent"
+            if key in self._skipped_logged:
+                return
+            self._skipped_logged.add(key)
+            prefix = TOPIC_PREFIX.get(SERVICE_AIRONE)
+            _LOGGER.warning(
+                "%s 에 상태를 요청했지만 %d초 안에 응답이 오지 않았습니다. "
+                "요청은 정상 전송됐습니다 — 보낸 곳: %s, 듣는 곳: %s/%s/#. "
+                "엔티티가 「알 수 없음」으로 남습니다. 이 로그와 통계정보를 "
+                "이슈에 붙여 주시면 원인을 좁힐 수 있습니다.",
+                target.nickname,
+                AIRONE_SILENCE_CHECK_SECONDS,
+                AIRONE_TOPIC_FMT.format(
+                    model_code=target.model_code,
+                    device_id=target.physical_device_id,
+                    command=AIRONE_CMD_STATUS,
+                ),
+                self.home_seq,
+                prefix,
+            )
+
+        async_call_later(self.hass, AIRONE_SILENCE_CHECK_SECONDS, _check)
 
     @callback
     def _schedule_airone_readback(self, device: AironeDevice) -> None:
