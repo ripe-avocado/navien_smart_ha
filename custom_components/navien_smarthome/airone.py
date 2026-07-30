@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from .const import (
+    AIRONE_HUMIDITY_REPORT_TYPE,
     AIRONE_HUMIDITY_TYPE,
     AIRONE_LEVEL_NAMES,
     AIRONE_MODE_NAMES,
@@ -529,30 +530,46 @@ class AironeDevice:
     def target_humidity(self) -> int | None:
         """제습 목표 습도.
 
-        **`additionalData` 의 `type: 1` 이 습도라는 보장이 없다.** 실기기 응답을 보면
-        같은 `type: 1` 이 자리마다 뜻이 다르다 — 제습 모드 안에서는 40~65(습도)인데
-        컨트롤러 수준에서는 0~4 다. 환기 중인 기기에서 `1` 을 습도로 읽어
-        슬라이더가 맨 왼쪽에 붙는 일이 있었다.
+        **번호로만 찾다가 못 찾았다.** 서버 능력 정보는 범위를 `type: 1` 로 주는데,
+        기기 상태는 값을 **`type: 3`** 으로 돌려준다. 같은 목록의 `type: 1` 은 범위가
+        0~4 인 다른 항목이다. v0.9.1 까지 그것만 뒤져서 화면이 늘 비어 있었다.
 
-        그래서 **서버가 알려준 그 모드의 범위 안에 있을 때만** 습도로 인정한다.
-        범위를 안 주는 모드(환기·청정 등)에서는 값이 있어도 쓰지 않는다.
+        그래서 두 가지를 함께 본다.
+
+        1. **서버가 알려준 그 모드의 범위 안에 있는 값** — 이게 판정 기준이다.
+           범위를 안 주는 모드(환기·청정, 터보·절전)에서는 값이 있어도 쓰지 않는다
+        2. 후보가 여럿이면 실기기에서 확인된 번호(`3`)를 먼저 쓴다
+
+        번호를 조건으로 걸지 않는 이유는 관측이 한 기기뿐이라서다. 범위 안에 드는
+        값이라면 번호가 달라도 읽는다.
         """
         bounds = self.humidity_bounds(self.mode, self.option)
         if bounds is None:
             return None
+
+        candidates: list[tuple[int | None, int]] = []
         for extra in self._controller.get("additionalData") or []:
             if not isinstance(extra, dict):
                 continue
-            if _as_int(extra.get("type")) != AIRONE_HUMIDITY_TYPE:
-                continue
             value = _as_int(extra.get("value"))
-            if value is not None and bounds[0] <= value <= bounds[1]:
+            if value is None or not bounds[0] <= value <= bounds[1]:
+                continue
+            candidates.append((_as_int(extra.get("type")), value))
+
+        if not candidates:
+            return None
+        if len(candidates) > 1:
+            # 어느 것이 습도인지 단정할 수 없다. 확인된 번호를 먼저 쓰고 남긴다.
+            _LOGGER.debug(
+                "에어원 습도 후보가 여럿입니다 (범위 %s): %s", bounds, candidates
+            )
+        for kind, value in candidates:
+            if kind == AIRONE_HUMIDITY_REPORT_TYPE:
                 self.last_humidity = value
                 return value
-            _LOGGER.debug(
-                "에어원 습도 %s 가 서버 범위 %s 를 벗어나 쓰지 않습니다", value, bounds
-            )
-        return None
+        value = candidates[0][1]
+        self.last_humidity = value
+        return value
 
     @property
     def filters(self) -> tuple[dict[str, Any], ...]:

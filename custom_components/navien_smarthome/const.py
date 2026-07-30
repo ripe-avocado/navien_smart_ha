@@ -180,7 +180,19 @@ AIRONE_MODE_SLEEP_LABEL: Final = "숙면"
 # 제습·환기제습에서만 목표 습도를 보여준다. 범위는 서버 `additionalData` 의
 # min/max 를 쓴다 — 여기에 숫자를 적지 않는다.
 AIRONE_MODES_WITH_HUMIDITY: Final = frozenset({9, 10})
+
+# **보낼 때와 받을 때 `type` 번호가 다르다.** 짐작이 아니라 실기기 제보로 확인했다.
+#
+# 보내기 — `1`. 서버 능력 정보의 범위가 `{"type": 1, "min": 40, "max": 65}` 로 오고,
+# 그 번호로 보내면 **앱에도 그 값이 그대로 남는다**(제보자가 앱으로 확인해 주었다).
+#
+# 받기 — `3`. 기기 상태의 `additionalData` 에 `{"type": 3, "value": 60}` 으로 온다.
+# 같은 목록의 `type: 1` 은 값이 `1` 이고 범위가 0~4 인 **다른 항목**이다.
+# v0.9.1 까지 그것을 습도로 찾다가 못 찾아 화면이 비어 있었다.
+#
+# 번호에만 의존하지 않는다 — 서버가 준 범위 안에 있는 값을 함께 본다.
 AIRONE_HUMIDITY_TYPE: Final = 1
+AIRONE_HUMIDITY_REPORT_TYPE: Final = 3
 
 # 앱의 희망습도 −/+ 버튼이 5씩 움직인다
 # (`AirOneControlFragment`: `setProgress(getProgress() ± 5)`). 서버는 min/max 만
