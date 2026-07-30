@@ -27,7 +27,6 @@ from .const import (
     AIRONE_OPTION_SLEEP,
     LEGACY_DEFAULT_AIR_VOLUMES,
     LEGACY_EXTRA_FIELDS,
-    LEGACY_VERIFIED_MODES,
     AIRONE_OPTIONS_WITH_WIND,
     AIRONE_RUN_AWAY,
     AIRONE_RUN_NAMES,
@@ -396,12 +395,9 @@ class AironeDevice:
 
         have = {(item.mode, item.option) for item in modes}
         restored = list(modes)
-        # DID 가 알려준 코드 + 실기기에서 확인한 코드. 앞쪽을 먼저 둬서 서버가
-        # 준 순서를 흐트러뜨리지 않는다.
-        codes = list(dict.fromkeys(
-            [item.mode for item in modes] + list(LEGACY_VERIFIED_MODES)
-        ))
-        for mode_code in codes:
+        # **서버가 알려준 코드에만** 기본 자리를 만든다. 확인한 기기가 한 대뿐이라
+        # 다른 모델까지 같은 모드를 지원한다고 볼 근거가 없다.
+        for mode_code in dict.fromkeys(item.mode for item in modes):
             if (mode_code, AIRONE_OPTION_NONE) in have:
                 continue
             restored.append(

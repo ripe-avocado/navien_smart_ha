@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -284,9 +284,8 @@ class AironeLegacySensor(AironeEntity, SensorEntity):
         self._table = LEGACY_VALUE_TABLES.get(table or "")
         self._attr_unique_id = f"{device.device_id}_legacy_{key}"
         self._attr_name = label
-        if key == "filter_used_time":
-            self._attr_native_unit_of_measurement = "h"
-            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        # 필터 사용 시간의 단위를 확인하지 못했다. 시간인지 분인지 모르는 채로
+        # 「h」 를 붙이면 60배 틀린 값이 그럴듯하게 보인다. 숫자만 둔다.
 
     @property
     def native_value(self):

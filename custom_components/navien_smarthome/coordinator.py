@@ -100,7 +100,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 남겨 두었다가 시작할 때 되살린다 — 그러지 않으면 첫 조작 전까지
         # 전원·모드·풍량이 모두 비어 보인다.
         self._store: Store = Store(hass, 1, f"{DOMAIN}.airone_state")
-        self._restored: dict[str, Any] = {}
+        # 되살린 기기. 진단에서 「지금 값이 복원된 것인지」를 가릴 수 있어야 한다 —
+        # 전원이 「켜짐」으로 보이는데 실제로 꺼져 있을 수 있다.
+        self.restored_devices: set[str] = set()
         # 「상태가 안 온다」와 「와도 못 붙인다」를 진단만으로 가리기 위한 집계.
         # 개인정보는 없다 — 개수와 키 이름뿐이다.
         self.drop_counts: dict[str, int] = {"mate_no_device": 0, "airone_no_device": 0}
@@ -487,6 +489,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             return
         # **덮어쓰지 않는다.** 명령 응답은 부분 페이로드로 온다 (`apply_reported` 주석).
         device.apply_reported(reported)
+        # 기기가 실제로 올린 값이 왔으니 더 이상 복원값이 아니다.
+        self.restored_devices.discard(device.device_id)
         self._async_remember_state()
         self.async_set_updated_data(self.data or {})
 
@@ -513,15 +517,16 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             return
         if not isinstance(stored, dict):
             return
-        self._restored = stored
-        restored = 0
         for device_id, reported in stored.items():
             device = self.airone.get(device_id)
             if device is not None and isinstance(reported, dict) and not device.reported:
                 device.apply_reported(reported)
-                restored += 1
-        if restored:
-            _LOGGER.debug("에어원 %s대의 마지막 상태를 되살렸습니다", restored)
+                self.restored_devices.add(device_id)
+        if self.restored_devices:
+            _LOGGER.debug(
+                "에어원 %s대의 마지막 상태를 되살렸습니다. 기기가 새로 올리기 전까지는 "
+                "잠정값입니다", len(self.restored_devices)
+            )
 
     # -- 제어 --------------------------------------------------------------
 
