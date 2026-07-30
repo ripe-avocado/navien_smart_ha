@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice, as_number, level_text, text_or_none
-from .const import AIRONE_INFERRED_UNITS, AIRONE_SENSOR_KINDS
+from .const import AIRONE_INFERRED_UNITS, AIRONE_SENSOR_KINDS, DOMAIN, WEATHER_FIELDS
 from .coordinator import NavienSmartCoordinator
 from .entity import AironeEntity, AironeMonitorEntity, NavienSmartEntity
 from .models import NavienDevice
@@ -46,6 +48,10 @@ async def async_setup_entry(
             AironeFilterSensor(coordinator, airone, index)
             for index in range(len(airone.filter_types))
         )
+
+    if coordinator.airone:
+        for key, (name, unit) in WEATHER_FIELDS.items():
+            entities.append(AironeWeatherSensor(coordinator, key, name, unit))
 
     async_add_entities(entities)
 
@@ -255,6 +261,34 @@ class AironeMonitorSensor(_AirSensorMixin, AironeMonitorEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, device, monitor)
         self._setup_air(device, kind, self._monitor_id)
+
+
+class AironeWeatherSensor(CoordinatorEntity[NavienSmartCoordinator], SensorEntity):
+    """실외 날씨. 기기가 아니라 지역에 붙는 값이라 별도 기기 카드로 둔다."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, key: str, name: str, unit: str | None) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_name = name.replace("_", " ")
+        self._attr_unique_id = f"navien_weather_{coordinator.home_seq}_{name}"
+        if unit:
+            self._attr_native_unit_of_measurement = unit
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"weather_{coordinator.home_seq}")},
+            name="나비엔 실외 날씨",
+            manufacturer="경동나비엔",
+        )
+
+    @property
+    def available(self) -> bool:
+        return bool(self.coordinator.weather)
+
+    @property
+    def native_value(self):
+        return self.coordinator.weather.get(self._key)
 
 
 class AironeFilterSensor(AironeEntity, SensorEntity):

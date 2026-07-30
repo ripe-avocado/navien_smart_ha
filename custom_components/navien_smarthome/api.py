@@ -324,6 +324,21 @@ class NavienSmartApi:
 
     # -- 기기 --------------------------------------------------------------
 
+    async def async_get_weather(self, region_code: Any) -> dict[str, Any]:
+        """실외 날씨. 앱 홈 화면이 쓰는 값이고 기기 등록정보의 `regionCode` 로 조회한다.
+
+        기기 상태가 아니라 지역 정보라 실패해도 기기 쪽을 막지 않는다 —
+        호출자가 빈 사전을 받고 넘어간다.
+        """
+        session = self._require_session()
+        data = await self._async_authed_request(
+            "GET",
+            "/weather",
+            params={"regionCode": region_code},
+        )
+        service = (data.get("data") or {}).get("serviceData")
+        return service if isinstance(service, dict) else {}
+
     async def async_get_devices(self, home_seq: int) -> list[dict[str, Any]]:
         session = self._require_session()
         payload = await self._async_authed_request(

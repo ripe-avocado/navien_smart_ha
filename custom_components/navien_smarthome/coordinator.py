@@ -22,7 +22,7 @@ from .api import (
     NavienSmartAuthError,
     NavienSmartError,
 )
-from .airone import AironeDevice
+from .airone import AironeDevice, _dig
 from .const import (
     AIRONE_CMD_CHANGE_MODE,
     AIRONE_CMD_POWER,
@@ -94,6 +94,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 에어원은 매트와 상태 체계가 달라 같은 dict 에 섞지 않는다. 검증이 끝난
         # 매트 경로를 건드리지 않는 것이 우선이다.
         self.airone: dict[str, AironeDevice] = {}
+        # 실외 날씨. 기기 상태와 별개라 없어도 통합이 뜬다.
+        self.region_code: Any = None
+        self.weather: dict[str, Any] = {}
         # 「상태가 안 온다」와 「와도 못 붙인다」를 진단만으로 가리기 위한 집계.
         # 개인정보는 없다 — 개수와 키 이름뿐이다.
         self.drop_counts: dict[str, int] = {"mate_no_device": 0, "airone_no_device": 0}
@@ -101,6 +104,24 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         self._skipped_logged: set[str] = set()
 
     # -- 수집 --------------------------------------------------------------
+
+    async def _async_update_weather(self, raw_devices: list[dict[str, Any]]) -> None:
+        """실외 날씨를 갱신한다. 기기 상태가 아니므로 실패해도 넘어간다."""
+        if self.region_code is None:
+            for raw in raw_devices:
+                code = raw.get("regionCode") or _dig(
+                    raw, "Properties", "data", "roomController", "regionCode"
+                )
+                if code:
+                    self.region_code = code
+                    break
+        if self.region_code is None:
+            return
+        try:
+            self.weather = await self.api.async_get_weather(self.region_code)
+        except NavienSmartError as err:
+            # 날씨가 없다고 기기를 못 쓰게 하지 않는다. 직전 값을 그대로 둔다.
+            _LOGGER.debug("실외 날씨 조회 실패: %s", err)
 
     async def _async_update_data(self) -> dict[str, NavienDevice]:
         try:
@@ -114,6 +135,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         devices: dict[str, NavienDevice] = {}
         self.raw_devices = raw_devices
         self.unsupported = []
+        await self._async_update_weather(raw_devices)
 
         previous_airone = self.airone
         airone: dict[str, AironeDevice] = {}

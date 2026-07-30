@@ -98,6 +98,17 @@ AIRONE_V2_MIN_MODEL_CODE: Final = 1000
 
 AIRONE_TOPIC_FMT: Final = "cmd/rc/v2/{model_code}/{device_id}/remote/{command}"
 
+# 실외 날씨. 앱 홈 화면이 쓰는 값이고 기기 등록정보의 `regionCode` 로 조회한다.
+WEATHER_FIELDS: Final = {
+    "temperature": ("outdoor_temperature", "°C"),
+    "humidity": ("outdoor_humidity", "%"),
+    "fineDust": ("outdoor_pm10", "µg/m³"),
+    "ultraFineDust": ("outdoor_pm2_5", "µg/m³"),
+    "text": ("weather_text", None),
+    "regionName": ("weather_region", None),
+}
+
+
 AIRONE_CMD_STATUS: Final = "status"
 AIRONE_CMD_POWER: Final = "power"
 AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
