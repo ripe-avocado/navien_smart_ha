@@ -45,6 +45,26 @@ from .mqtt import NavienSmartMqtt
 _LOGGER = logging.getLogger(__name__)
 
 
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _key_map(raw: dict[str, Any], depth: int = 5) -> str:
+    """응답의 키 구조만 문자열로. **값은 담지 않는다** — 로그에 개인정보가 남는다."""
+
+    def walk(value: Any, level: int) -> Any:
+        if not isinstance(value, dict) or level <= 0:
+            return "..." if isinstance(value, dict) else type(value).__name__
+        return {key: walk(inner, level - 1) for key, inner in value.items()}
+
+    return str(walk(raw.get("Properties"), depth))
+
+
 class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
     """`data` 는 `deviceId` → `NavienDevice` 다."""
 
@@ -93,7 +113,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         airone: dict[str, AironeDevice] = {}
 
         for raw in raw_devices:
-            service_code = raw.get("serviceCode")
+            # 매트는 정수로 오는 것을 확인했다. 에어원도 그럴 거라 단정하지 않는다 —
+            # 문자열로 오면 비교가 조용히 실패해 기기가 통째로 사라진다.
+            service_code = _as_int(raw.get("serviceCode"))
             if service_code not in SUPPORTED_SERVICE_CODES:
                 self.unsupported.append(raw)
                 self._log_unsupported(raw)
@@ -160,10 +182,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         """에어원 하나를 해석한다. 만들 수 없으면 이유를 로그에 남긴다."""
         device = AironeDevice.parse(raw)
         if device is None:
+            # **무엇을 봤는지 남긴다.** 「없습니다」만 적으면 제보를 받아도 어디를
+            # 봐야 하는지 알 수 없다. 키 이름만 남기고 값은 남기지 않는다.
             self._log_skip(
                 raw,
-                "능력 메타데이터(did.roomController)가 없어 엔티티를 만들지 않습니다. "
-                "제보해 주시면 넓힐 수 있습니다",
+                "능력 메타데이터를 찾지 못해 엔티티를 만들지 않습니다 "
+                f"(찾은 곳: Properties.data.did.reported / 실제 키: {_key_map(raw)}). "
+                "이 로그와 통계정보를 제보해 주시면 바로 넓힐 수 있습니다",
             )
             self.unsupported.append(raw)
             return None
