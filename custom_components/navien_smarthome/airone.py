@@ -5,7 +5,9 @@
 묶지 않고 따로 둔다 — 검증이 끝난 매트 경로를 건드리지 않는 것이 우선이다.
 
 여기 있는 필드명과 값은 전부 앱에서 확인했다(`AironeConstants`, `PubSubData`,
-`ModeDid`, `RoomControllerStatus`). **다만 실기기로 검증하지 않았다.**
+`ModeDid`, `RoomControllerStatus`). **상태·제어·목표 습도는 실기기 제보로
+확인됐다**(룸콘 분리형 1901, 올인원 룸콘 1900). 그 밖의 모델은 확인된 것이 없다.
+
 값 체계를 모르는 항목은 채우지 않고 비워 둔다.
 """
 
@@ -291,6 +293,13 @@ class AironeDevice:
     # 그 순간의 값만으로는 알 수 없다. 진단에 담아 제보 한 번으로 닫는다.
     # 개인정보는 담지 않는다 — 모드 번호와 습도 값뿐이다.
     command_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
+    # **값이 멈춰도 흔적이 남게 한다.** 빈 응답으로 지우지 않기로 한 대가로
+    # 「갱신이 안 되는 것」과 「값이 안 바뀐 것」을 구별할 수 없게 됐다.
+    # 마지막으로 값이 실제로 바뀐 시점과, 헛돈 횟수를 센다.
+    air_sensor_stamp: float | None = field(repr=False, default=None)
+    air_sensor_empty: int = field(repr=False, default=0)
+    air_sensor_errors: int = field(repr=False, default=0)
+    air_sensor_unchanged: int = field(repr=False, default=0)
     humidity_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
 
     # -- 생성 --------------------------------------------------------------
@@ -761,14 +770,30 @@ class AironeDevice:
 
         if not table:
             # 빈 응답이 이미 받은 값을 지우게 하지 않는다.
+            self.air_sensor_empty += 1
             _LOGGER.debug("공기질 응답이 비어 있어 앞서 받은 값을 유지합니다")
             return unknown
 
         merged = dict(self.air_sensors)
         merged.update(table)
+        changed = merged != self.air_sensors
         self.air_sensors = merged
         self.sensor_kinds = tuple(k for k in AIRONE_SENSOR_KINDS if k in merged)
+        if changed:
+            self.air_sensor_stamp = time.monotonic()
+            self.air_sensor_unchanged = 0
+        else:
+            # 값이 온 것은 맞는데 앞과 똑같다. 방이 조용한 것일 수도 있고
+            # 서버가 옛 값을 계속 주는 것일 수도 있다 — 세어서 판단에 넘긴다.
+            self.air_sensor_unchanged += 1
         return unknown
+
+    @property
+    def air_sensor_age(self) -> float | None:
+        """공기질 값이 마지막으로 **바뀐** 뒤 흐른 초."""
+        if self.air_sensor_stamp is None:
+            return None
+        return round(time.monotonic() - self.air_sensor_stamp, 1)
 
     # -- 제어 --------------------------------------------------------------
 

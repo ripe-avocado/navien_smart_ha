@@ -253,6 +253,14 @@ def _airone_view(device: Any) -> dict[str, Any]:
         "error_code": device.error_code,
         "filters": list(device.filters),
         "air_sensor_kinds": list(device.sensor_kinds),
+        # **「앱과 값이 다르다」를 가리는 값들.** 공기질은 5분마다 REST 로 다시
+        # 읽는데, 빈 응답으로 지우지 않기로 한 뒤로는 갱신이 멈춰도 화면에 옛 값이
+        # 그대로 남는다. 아래 셋으로 「방이 조용한 것」과 「우리가 못 읽는 것」을
+        # 가른다. 초와 개수뿐이라 개인정보는 없다.
+        "air_sensor_changed_seconds_ago": device.air_sensor_age,
+        "air_sensor_empty_responses": device.air_sensor_empty,
+        "air_sensor_read_errors": device.air_sensor_errors,
+        "air_sensor_unchanged_reads": device.air_sensor_unchanged,
         # 단위를 앱에서 뽑지 못해 판단으로 정한 항목. 틀렸다는 제보가 오면 고친다.
         "air_sensor_units": {
             kind: {

@@ -24,6 +24,7 @@ from .api import (
 )
 from .airone import AironeDevice
 from .const import (
+    AIRONE_AIR_ERROR_LOG_EVERY,
     AIRONE_CMD_CHANGE_MODE,
     AIRONE_CMD_POWER,
     AIRONE_CMD_STATUS,
@@ -235,24 +236,31 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             device.sensor_kinds = old.sensor_kinds
             device.last_humidity = old.last_humidity
 
-        self._log_airone_unverified(device)
+        self._log_airone_found(device)
         return device
 
-    def _log_airone_unverified(self, device: AironeDevice) -> None:
-        """에어원 지원이 실기기 미검증임을 한 번만 알린다.
+    def _log_airone_found(self, device: AironeDevice) -> None:
+        """에어원을 찾았다는 것을 한 번만 알린다.
 
-        규약은 앱에서 그대로 뽑았지만 실기기로 확인한 적이 없다. 조용히 켜두면
-        사용자는 되는 줄 알고 자동화를 만든다.
+        **v0.9.3 에서 `WARNING` 을 내렸다.** 「실기기로 검증하지 않았습니다 —
+        동작하지 않거나 값이 이상할 수 있습니다」라고 찍고 있었다. 두 가지가 틀렸다.
+
+        1. **사실이 아니다.** 상태·제어·목표 습도가 제보로 확인됐다
+        2. **`WARNING` 은 문제가 있을 때만 쓴다.** HA 로그 화면은 기본으로
+           경고 이상만 보여준다. 그래서 제보자가 이 줄을 오류로 알고 이슈에
+           붙였다 — 아무 문제가 없는데 걱정을 만들었다
+
+        모델은 계속 늘어난다. 그래서 검증된 모델 목록을 코드에 적지 않는다.
+        무엇을 찾았는지만 남기고, 이상하면 알려 달라고 한다.
         """
-        key = f"{device.device_seq}:airone_unverified"
+        key = f"{device.device_seq}:airone_found"
         if key in self._skipped_logged:
             return
         self._skipped_logged.add(key)
-        _LOGGER.warning(
-            "환기청정을 찾았습니다 (%s, modelCode=%s). 지원을 켰지만 **실기기로 "
-            "검증하지 않았습니다** — 동작하지 않거나 값이 이상할 수 있습니다. "
-            "결과가 어떻든 이슈로 알려 주시면 고칠 수 있습니다. 운전 모드 %d가지를 "
-            "서버 메타데이터에서 찾았습니다.",
+        _LOGGER.info(
+            "환기청정을 찾았습니다 (%s, modelCode=%s). 운전 모드 %d가지를 서버 "
+            "정보에서 찾았습니다. 값이 앱과 다르거나 조작이 안 되면 이슈로 "
+            "알려 주세요.",
             device.nickname,
             device.model_code,
             len(device.selectable_modes),
@@ -271,8 +279,22 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                     self.home_seq, device.device_seq
                 )
             except NavienSmartError as err:
-                _LOGGER.debug("%s 공기질 조회 실패: %s", device.nickname, err)
+                device.air_sensor_errors += 1
+                # **조용히 넘기지 않는다.** 빈 응답으로 값을 지우지 않기로 한
+                # 뒤로는 조회가 계속 실패해도 화면에 옛 값이 그대로 남는다.
+                # 사용자는 「값이 앱과 다르다」로만 보게 되고 원인을 알 수 없다.
+                if device.air_sensor_errors % AIRONE_AIR_ERROR_LOG_EVERY == 0:
+                    _LOGGER.warning(
+                        "%s 공기질을 %d회 연속 못 읽었습니다. 화면에 남아 있는 값은 "
+                        "그 전에 받은 것입니다 (%s)",
+                        device.nickname,
+                        device.air_sensor_errors,
+                        err,
+                    )
+                else:
+                    _LOGGER.debug("%s 공기질 조회 실패: %s", device.nickname, err)
                 continue
+            device.air_sensor_errors = 0
             unknown = device.set_air_sensors(airs)
             if unknown:
                 self._log_skip(
