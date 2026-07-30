@@ -350,6 +350,38 @@ class AironeDevice:
             raw=raw,
         )
 
+    # -- 상태 반영 ----------------------------------------------------------
+
+    def apply_reported(self, incoming: dict[str, Any]) -> None:
+        """들어온 상태를 **덮어쓰지 않고 겹쳐 쓴다.**
+
+        에어원은 명령마다 응답이 따로 오고 **그 응답이 부분적이다.** 전원을 켜면
+        `{"roomController": {"running": 1}}` 처럼 바뀐 것만 오거나, `odu` 만 오는
+        경우도 있다.
+
+        통째로 갈아끼우면 그때 `mode` · `option` · `airVolume` 이 사라지고, 심하면
+        `running` 까지 없어져 **전원이 「알 수 없음」으로 빠진다** — 실사용 제보로
+        확인했다.
+
+        매트는 shadow 가 항상 전체를 주므로 이 처리가 필요 없다. 여기만 겹쳐 쓴다.
+
+        오래된 값이 남을 수 있다는 것은 감수한다. 기기가 어떤 항목을 더 이상 보내지
+        않으면 마지막 값이 남는다. **전부 「알 수 없음」이 되는 것보다 낫다.**
+        """
+        merged: dict[str, Any] = dict(self.reported or {})
+        for key, value in incoming.items():
+            current = merged.get(key)
+            if isinstance(value, dict) and isinstance(current, dict):
+                # `roomController` 안의 바뀐 항목만 갈아끼운다.
+                inner = dict(current)
+                inner.update(value)
+                merged[key] = inner
+            else:
+                # 목록(`airMonitor`, `filter`)은 통째로 바꾼다. 부분 목록을 항목별로
+                # 섞으면 자리가 어긋난다.
+                merged[key] = value
+        self.reported = merged
+
     # -- 세대 --------------------------------------------------------------
 
     @property

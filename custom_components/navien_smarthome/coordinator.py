@@ -446,7 +446,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         if device is None:
             _LOGGER.debug("모르는 에어원의 보고 무시: %s", device_id)
             return
-        device.reported = reported
+        # **덮어쓰지 않는다.** 명령 응답은 부분 페이로드로 온다 (`apply_reported` 주석).
+        device.apply_reported(reported)
         self.async_set_updated_data(self.data or {})
 
     # -- 제어 --------------------------------------------------------------
