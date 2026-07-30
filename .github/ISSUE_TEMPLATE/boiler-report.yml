@@ -55,7 +55,7 @@ body:
         HA 버전에 따라 `진단 정보 다운로드` 로 보일 수도 있습니다 (원문 Download diagnostics). ⋮ 메뉴의 내려받기 항목입니다.
 
         내려받은 `.json` 파일을 이 칸에 끌어다 놓거나 내용을 붙여 주세요.
-        `report_wanted_devices` 항목에 보일러 정보가 들어 있습니다.
+        파일 안에 보일러 정보가 들어 있습니다. 따로 찾아보실 것은 없습니다.
       render: json
     validations:
       required: true

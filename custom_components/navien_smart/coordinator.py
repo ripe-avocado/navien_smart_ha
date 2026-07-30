@@ -155,16 +155,14 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         if key in self._skipped_logged:
             return
         self._skipped_logged.add(key)
-        cool = device.cool_control
         _LOGGER.warning(
             "사계절 모델을 찾았습니다 (%s, modelCode=%s). 난방은 지원하지만 "
             "냉방은 값 체계가 확인되지 않아 냉방 중에는 제어를 비활성으로 둡니다. "
-            "제보해 주시면 냉방을 열 수 있습니다 — coolControl=%s, season=%s. "
-            "'운전 상태' 센서의 속성에 같은 값이 있습니다.",
+            "냉방을 열려면 제보가 필요합니다 — 매트를 냉방으로 켜둔 뒤 설정 → "
+            "기기 및 서비스 → 나비엔 스마트 → ⋮ 메뉴의 '통계정보 다운로드'(진단 파일) 를 "
+            "이슈에 붙여 주세요. 필요한 값이 그 안에 들어 있습니다.",
             device.nickname,
             device.model_code,
-            cool.as_diagnostics() if cool else None,
-            device.season,
         )
 
     def _log_skip(self, raw: dict[str, Any], reason: str) -> None:
