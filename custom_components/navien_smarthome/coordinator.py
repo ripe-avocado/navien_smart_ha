@@ -182,13 +182,20 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         """에어원 하나를 해석한다. 만들 수 없으면 이유를 로그에 남긴다."""
         device = AironeDevice.parse(raw)
         if device is None:
-            # **무엇을 봤는지 남긴다.** 「없습니다」만 적으면 제보를 받아도 어디를
-            # 봐야 하는지 알 수 없다. 키 이름만 남기고 값은 남기지 않는다.
             self._log_skip(
                 raw,
-                "능력 메타데이터를 찾지 못해 엔티티를 만들지 않습니다 "
-                f"(찾은 곳: Properties.data.did.reported / 실제 키: {_key_map(raw)}). "
-                "이 로그와 통계정보를 제보해 주시면 바로 넓힐 수 있습니다",
+                "응답에 deviceId·deviceSeq 가 없어 기기를 만들지 못했습니다 "
+                f"(Properties 구조: {_key_map(raw)})",
+            )
+            self.unsupported.append(raw)
+            return None
+
+        if _as_int(device.model_code) is None:
+            # 「구세대」로 뭉개면 안 된다. 값을 못 읽은 것과 구세대인 것은 다르다.
+            self._log_skip(
+                raw,
+                f"modelCode '{device.model_code}' 를 숫자로 읽지 못해 세대를 "
+                "가릴 수 없습니다. 이 로그를 제보해 주세요",
             )
             self.unsupported.append(raw)
             return None
@@ -203,11 +210,15 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             self.unsupported.append(raw)
             return None
 
-        if not device.selectable_modes:
+        if not device.modes:
+            # **기기는 만든다.** 전원·운전상태·오류는 상태 응답에서 오므로
+            # 메타데이터가 없어도 쓸 수 있다. 고르는 엔티티만 빠진다.
             self._log_skip(
                 raw,
-                "서버가 고를 수 있는 운전 모드를 알려주지 않아 모드 선택을 "
-                "만들지 않습니다",
+                "능력 메타데이터를 찾지 못해 운전 모드·풍량·목표 습도는 만들지 "
+                "않습니다. 전원과 상태 엔티티는 만듭니다 "
+                f"(찾은 곳: Properties.data.did.reported / 실제 구조: {_key_map(raw)}). "
+                "이 로그를 제보해 주시면 바로 넓힐 수 있습니다",
             )
 
         # 이미 받아둔 실시간 상태와 공기질을 잃지 않는다.

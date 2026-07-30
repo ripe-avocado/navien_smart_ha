@@ -275,8 +275,13 @@ class AironeDevice:
         did = _dig(raw, "Properties", "data", "did", "reported") or {}
         controller = did.get("roomController")
         if not isinstance(controller, dict):
-            # 능력 메타데이터가 없으면 무엇을 만들 수 있는지 알 수 없다.
-            return None
+            # **기기를 포기하지 않는다.** 능력 메타데이터가 없으면 무엇을 고를 수
+            # 있는지 모를 뿐이고, 전원·운전상태·오류는 상태 응답에서 온다.
+            #
+            # 등록 직후처럼 기기가 아직 `did` 를 올리지 않은 시점이 있다. 여기서
+            # `None` 을 돌려주면 그 사용자는 엔티티를 하나도 못 본다 —
+            # 「아무것도 안 뜬다」가 그것이다. 없는 것은 안 만들고, 있는 것은 만든다.
+            controller = {}
         odu = did.get("odu") if isinstance(did.get("odu"), dict) else {}
 
         modes = tuple(
