@@ -208,16 +208,6 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             self.unsupported.append(raw)
             return None
 
-        if not device.is_v2_generation:
-            # 레거시 세대는 봉투와 토픽이 전혀 달라 같은 코드로 못 쏜다.
-            self._log_skip(
-                raw,
-                f"modelCode {device.model_code} 는 구세대 통신을 씁니다. "
-                "지금 구현은 신형(modelCode 1000 이상)만 다룹니다",
-            )
-            self.unsupported.append(raw)
-            return None
-
         if not device.modes:
             # **기기는 만든다.** 전원·운전상태·오류는 상태 응답에서 오므로
             # 메타데이터가 없어도 쓸 수 있다. 고르는 엔티티만 빠진다.
@@ -512,6 +502,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             command=command,
             client_id=client_id,
             desired=desired,
+            # 세대 차이는 전송 계층에서만 흡수한다. 위쪽은 세대를 모른다.
+            legacy=not device.is_v2_generation,
         )
 
     async def async_airone_power(self, device: AironeDevice, turn_on: bool) -> None:

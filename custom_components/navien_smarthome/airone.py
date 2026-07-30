@@ -302,7 +302,13 @@ class AironeDevice:
         if not device_id or device_seq is None or service_code is None:
             return None
 
-        did = _dig(raw, "Properties", "data", "did", "reported") or {}
+        # 구세대는 `did` 아래에 `state` 겹이 하나 더 있다 (실측: NRT-20DSW).
+        # 세대를 따지지 않고 있는 쪽을 쓴다 — 어느 세대든 한 곳에만 들어 있다.
+        did = (
+            _dig(raw, "Properties", "data", "did", "reported")
+            or _dig(raw, "Properties", "data", "did", "state", "reported")
+            or {}
+        )
         controller = did.get("roomController")
         if not isinstance(controller, dict):
             # **기기를 포기하지 않는다.** 능력 메타데이터가 없으면 무엇을 고를 수

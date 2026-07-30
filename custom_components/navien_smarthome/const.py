@@ -98,6 +98,9 @@ AIRONE_V2_MIN_MODEL_CODE: Final = 1000
 
 AIRONE_TOPIC_FMT: Final = "cmd/rc/v2/{model_code}/{device_id}/remote/{command}"
 
+# 구세대는 `v2` 조각이 없다 (CHANGELOG 「구형은 건너뛴다」의 토픽 표).
+AIRONE_LEGACY_TOPIC_FMT: Final = "cmd/rc/{model_code}/{device_id}/remote/{command}"
+
 AIRONE_CMD_STATUS: Final = "status"
 AIRONE_CMD_POWER: Final = "power"
 AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
@@ -144,6 +147,43 @@ AIRONE_MODE_NAMES: Final = {
     17: "바이패스",
     18: "음압환기",
 }
+
+# --- 구세대(에어원 `modelCode < 1000`) 상태 프레임 -------------------------
+#
+# 봉투가 `{topic, payload: {...}, serviceCode}` 이고 **`reported` 도 `roomController`
+# 도 없는 평평한 구조**다. 필드 이름이 신형과 다를 뿐 아니라 **오해를 부른다** —
+# 실기기(NRT-20DSW, modelCode 8)에서 앱으로 바이패스를 걸어놓고 45개 필드를
+# 통째로 비교해 확인했다.
+#
+# | 구세대 필드 | 실제 의미 |
+# | --- | --- |
+# | `supportedOperationMode` | **설정된** 운전모드 (능력 목록이 아니다) |
+# | `oduOperationMode` | 실외기가 **지금 실제로** 도는 모드 (1=정지) |
+# | `desiredAirVolume` | **설정된** 풍량 |
+# | `airVolume` | **실제** 송풍량 (안 불면 0) |
+#
+# 동작값을 읽으면 바이패스가 유령 모드로, 자동운전이 관측 불가로 보인다.
+# 그래서 **설정값을 읽는다.** 동작값은 진단으로만 남긴다.
+LEGACY_STATUS_TO_CONTROLLER: Final = {
+    "supportedOperationMode": "mode",
+    "optionFunction": "option",
+    "desiredAirVolume": "airVolume",
+}
+
+# 동작값. 제어 상태로 쓰지 않고 진단에만 담는다.
+LEGACY_ACTUAL_FIELDS: Final = ("oduOperationMode", "airVolume")
+
+# `running` 값이 신형과 **반대다** (CHANGELOG 「구형은 건너뛴다」). 세대를 안 가리면
+# 전원이 뒤집힌다. 구세대 `isRunning` 2=운전 → 신형 `running` 1=운전 로 맞춘다.
+LEGACY_RUNNING_TO_V2: Final = {2: AIRONE_RUN_ON, 1: AIRONE_RUN_OFF}
+
+# 구세대 명령 봉투. 신형은 `payload.state.desired`, 구세대는 `payload.request` 다.
+LEGACY_CONTROLLER_TO_REQUEST: Final = {
+    "mode": "operationMode",
+    "option": "optionMode",
+    "airVolume": "windLevel",
+}
+LEGACY_RUNNING_TO_REQUEST: Final = {AIRONE_RUN_ON: 2, AIRONE_RUN_OFF: 1}
 
 # `ROOM_OPERATION_OPTION_*`. 이름은 앱 제어화면 문자열
 # (`STR_FRAGMENT_AIRONE_CONTROL_OPTION_*`). 1 은 "옵션 없음" 이라 라벨이 없다.

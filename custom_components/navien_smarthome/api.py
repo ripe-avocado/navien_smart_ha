@@ -23,7 +23,10 @@ from typing import Any
 import aiohttp
 
 from .const import (
+    AIRONE_LEGACY_TOPIC_FMT,
     AIRONE_TOPIC_FMT,
+    LEGACY_CONTROLLER_TO_REQUEST,
+    LEGACY_RUNNING_TO_REQUEST,
     API_URL,
     CODE_NOT_AUTHORIZED,
     CODE_SUCCESS,
@@ -75,6 +78,26 @@ class NavienSmartError(Exception):
 
 class NavienSmartAuthError(NavienSmartError):
     """자격증명이 잘못되었거나 세션이 무효해진 경우."""
+
+
+def _legacy_request(desired: dict[str, Any]) -> dict[str, Any]:
+    """신형 `desired` 를 구세대 `request` 로 옮긴다.
+
+    호출자는 세대를 모르고 `roomController` 하나만 만든다. 봉투 차이는 전송
+    직전 여기서만 흡수한다 — 세대 분기가 모델까지 번지지 않게 한다.
+    """
+    controller = desired.get("roomController")
+    if not isinstance(controller, dict):
+        return {}
+    request: dict[str, Any] = {}
+    running = controller.get("running")
+    if running is not None:
+        # 구세대는 운전 값이 반대다. 안 뒤집으면 전원이 거꾸로 나간다.
+        request["power"] = LEGACY_RUNNING_TO_REQUEST.get(running, running)
+    for source, target in LEGACY_CONTROLLER_TO_REQUEST.items():
+        if source in controller:
+            request[target] = controller[source]
+    return request
 
 
 class NavienSmartApiError(NavienSmartError):
@@ -385,6 +408,7 @@ class NavienSmartApi:
         command: str,
         client_id: str,
         desired: dict[str, Any] | None = None,
+        legacy: bool = False,
     ) -> None:
         """에어원 명령을 중계한다.
 
@@ -395,7 +419,8 @@ class NavienSmartApi:
         `desired` 가 `None` 이면 상태 조회다 — `state` 를 아예 넣지 않는다.
         """
         session = self._require_session()
-        topic = AIRONE_TOPIC_FMT.format(
+        topic_fmt = AIRONE_LEGACY_TOPIC_FMT if legacy else AIRONE_TOPIC_FMT
+        topic = topic_fmt.format(
             model_code=model_code, device_id=physical_device_id, command=command
         )
         payload: dict[str, Any] = {
@@ -406,7 +431,10 @@ class NavienSmartApi:
             "responseTopic": f"{topic}/res",
         }
         if desired is not None:
-            payload["state"] = {"desired": desired}
+            if legacy:
+                payload["request"] = _legacy_request(desired)
+            else:
+                payload["state"] = {"desired": desired}
 
         body_obj = {"serviceCode": service_code, "payload": payload}
         # 매트와 같은 이유로 토픽의 '/' 를 이스케이프한다.
