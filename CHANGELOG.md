@@ -1,5 +1,45 @@
 # 변경 기록
 
+## v0.7.4 — 2026-07-30
+
+**`running` 을 방 컨트롤러에서 못 읽으면 실외기에서 읽는다.**
+
+`RoomControllerStatus` 와 `OduStatus` **둘 다** `running` 을 가진다. 방 컨트롤러
+쪽만 보다가 그 필드가 비어 오는 기기를 만나면 전원 스위치가 영구히
+`알 수 없음` 이 된다 — **값이 있는데 안 읽는 셈이다.**
+
+방 컨트롤러를 먼저 본다. 사용자가 만지는 것이 그쪽이다.
+
+### 왜 지금 고쳤나
+
+먼저 나온 통합의 `running` 처리를 다시 봤다. 세 군데를 더듬는다.
+
+```python
+running = status.get("running")
+if running is None: running = room_controller.get("running")
+if running is None: running = room_controller.get("state")
+```
+
+**위치를 확신하지 못한다는 신호다.** `room_controller.state` 는 APK 에 없는
+필드라 따라가지 않았지만, 실외기 `running` 은 `OduStatus` 에 실제로 있다.
+APK 근거가 있는 쪽만 폴백으로 넣었다.
+
+### 전원 값 매핑은 그대로 둔다
+
+그쪽도 `1 = 운전` 을 쓴다(`"running": 1 if power else 2`,
+`state["power"] = int(running) == 1`). 우리와 같다.
+
+**다만 이것을 검증 근거로 쓰지 않는다.** 둘 다 같은 APK 상수
+(`OPERATION_STATUS_ON_V2_1MODEL = 1`)에서 나왔을 것이므로, 서로 어긋나지 않는다는
+사실만 확인된 것이다. **같이 틀렸을 수도 있다.**
+
+그쪽 사용자가 「전원은 상태반영이 잘 안되고 있는것 같습니다」라고 한 원인은
+매핑이 아니라 **낙관적 갱신 120초**(`OPTIMISTIC_STATE_TTL`)일 가능성이 크다.
+기기가 거부하면 「됐다가 되돌아간다」가 된다. 우리는 그 대신 3초 뒤 실제 상태를
+다시 읽는다(v0.7.0).
+
+합성 데이터 179개 통과. 실기기 검증은 여전히 0개다.
+
 ## v0.7.3 — 2026-07-30
 
 **README 를 절반으로 줄이고 틀린 내용 세 곳을 고쳤다.** 코드 변경은 없다.

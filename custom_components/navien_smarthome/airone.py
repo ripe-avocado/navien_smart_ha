@@ -331,7 +331,18 @@ class AironeDevice:
 
     @property
     def running(self) -> int | None:
-        return _as_int(self._controller.get("running"))
+        """운전 상태. 방 컨트롤러에 없으면 실외기에서 읽는다.
+
+        `RoomControllerStatus` 와 `OduStatus` **둘 다** `running` 을 가진다. 방
+        컨트롤러 쪽만 보다가 그 필드가 비어 오는 기기를 만나면 전원 스위치가
+        영구히 `알 수 없음` 이 된다 — 값이 있는데 안 읽는 셈이다.
+
+        방 컨트롤러를 먼저 본다. 사용자가 만지는 것이 그쪽이다.
+        """
+        value = _as_int(self._controller.get("running"))
+        if value is None:
+            value = _as_int(self._odu.get("running"))
+        return value
 
     @property
     def running_name(self) -> str | None:
