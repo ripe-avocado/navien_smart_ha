@@ -82,7 +82,7 @@ async def async_get_config_entry_diagnostics(
                 }
             )
 
-    return {
+    payload = {
         "integration": {
             "iot_endpoint": IOT_ENDPOINT,
             "mqtt_connected": coordinator.mqtt_connected,
@@ -114,6 +114,55 @@ async def async_get_config_entry_diagnostics(
         "report_wanted_devices": report_wanted,
         "out_of_scope_devices": out_of_scope,
     }
+    # **키 이름으로 가리는 것만으로는 부족하다.** 값 안에 식별자가 박혀 있는
+    # 경우가 있다 — `requestTopic: "dt/rc/7/1097BD3F5CACB84E/did"` 가 그것이다.
+    # `requestTopic` 은 가릴 키 목록에 없었고, 제보자가 이 줄을 공개로 올렸다.
+    #
+    # 그 키를 목록에 더하는 것으로 끝내지 않는다. **다음에 또 새는 것을 막는다.**
+    # 식별자 값을 먼저 모아 두고, 결과 전체에서 그 문자열을 지운다.
+    # 토픽 모양(`dt/rc/7/**REDACTED**/did`)은 남으므로 지원을 넓힐 근거는 잃지 않는다.
+    return _scrub(payload, _identifiers(coordinator.raw_devices))
+
+
+def _identifiers(raw_devices: list[dict[str, Any]]) -> list[str]:
+    """가려야 할 식별자 **값**을 모은다.
+
+    `TO_REDACT` 의 키에 실린 문자열이 대상이다. 8자 미만은 버린다 — 짧은 값은
+    다른 문자열에 우연히 들어 있을 수 있고, 그걸 지우면 멀쩡한 값이 망가진다.
+    """
+    found: set[str] = set()
+
+    def walk(value: Any, key: str | None) -> None:
+        if isinstance(value, dict):
+            for inner_key, inner in value.items():
+                walk(inner, inner_key)
+        elif isinstance(value, list):
+            for inner in value:
+                walk(inner, key)
+        elif isinstance(value, str) and key in TO_REDACT:
+            text = value.strip()
+            if len(text) >= 8:
+                found.add(text)
+
+    walk(raw_devices, None)
+    # 긴 것부터 지운다. 짧은 값이 긴 값의 일부일 때 순서가 뒤바뀌면 조각이 남는다.
+    return sorted(found, key=len, reverse=True)
+
+
+def _scrub(value: Any, secrets: list[str]) -> Any:
+    """결과 전체를 훑어 식별자 문자열을 지운다."""
+    if not secrets:
+        return value
+    if isinstance(value, dict):
+        return {key: _scrub(inner, secrets) for key, inner in value.items()}
+    if isinstance(value, list):
+        return [_scrub(inner, secrets) for inner in value]
+    if isinstance(value, str):
+        for secret in secrets:
+            if secret in value:
+                value = value.replace(secret, "**REDACTED**")
+        return value
+    return value
 
 
 def _entity_view(device: Any) -> dict[str, Any]:
