@@ -51,6 +51,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: NavienSmartConfigEntry) 
 
     coordinator = NavienSmartCoordinator(hass, entry, api, int(home_seq))
     await coordinator.async_config_entry_first_refresh()
+    # 구세대는 상태 요청에 답하지 않는다. 마지막으로 알던 값을 먼저 채운다.
+    await coordinator.async_restore_state()
 
     if not coordinator.data and not coordinator.airone:
         _LOGGER.warning(

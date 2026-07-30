@@ -31,6 +31,7 @@ from .const import (
     IOT_REGION,
     IOT_SERVICE,
     LEGACY_ACTUAL_FIELDS,
+    LEGACY_EXTRA_FIELDS,
     LEGACY_RUNNING_TO_V2,
     LEGACY_STATUS_TO_CONTROLLER,
 )
@@ -230,6 +231,15 @@ def normalize_legacy_status(payload: dict[str, Any]) -> dict[str, Any] | None:
     reported: dict[str, Any] = {"roomController": controller}
     if actual:
         reported["legacyActual"] = actual
+
+    # 신형에 없는 값들. 해석해서 제어에 쓰지 않고 진단으로만 내보낸다.
+    extras = {
+        name: payload[field]
+        for field, name in LEGACY_EXTRA_FIELDS.items()
+        if payload.get(field) is not None
+    }
+    if extras:
+        reported["legacyExtras"] = extras
     return reported
 
 
