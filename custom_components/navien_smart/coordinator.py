@@ -198,8 +198,31 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             topic_prefixes=prefixes,
             credentials_provider=self._async_aws_credentials,
             on_reported=self._handle_reported,
+            on_subscribed=self._async_request_initial_state,
         )
         await self._mqtt.async_start()
+
+    async def _async_request_initial_state(self) -> None:
+        """켜져 있는 기기에 상태를 올려달라고 한다.
+
+        shadow 이벤트는 **변화가 있을 때만** 온다. 그래서 구독만 해두면 아무 조작이
+        없는 동안 상태가 비어 있다 — 엔티티가 계속 `unknown` 으로 남는다.
+
+        제어 필드 없이 `event.modelCode` 만 담아 보내면 기기가 현재 상태를
+        `reported` 로 올린다. 앱도 같은 방식을 쓴다.
+        **설정을 바꾸지 않는다** — 보낼 값이 없기 때문이다.
+
+        꺼져 있는 기기에는 보내지 않는다. 응답하지 않고 shadow 에만 쌓인다.
+        """
+        for device in (self.data or {}).values():
+            if not device.available:
+                _LOGGER.debug("%s 는 오프라인이라 초기 상태를 요청하지 않습니다", device.nickname)
+                continue
+            try:
+                await self.api.async_control(self.home_seq, device.raw, {})
+                _LOGGER.debug("%s 에 초기 상태를 요청했습니다", device.nickname)
+            except NavienSmartError as err:
+                _LOGGER.warning("%s 초기 상태 요청 실패: %s", device.nickname, err)
 
     async def async_stop_mqtt(self) -> None:
         if self._mqtt is not None:

@@ -17,13 +17,13 @@ import hashlib
 import hmac
 import json
 import logging
-import ssl
 import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util.ssl import get_default_context
 
 from .api import AwsCredentials
 from .const import IOT_ENDPOINT, IOT_REGION, IOT_SERVICE
@@ -136,12 +136,15 @@ class NavienSmartMqtt:
         topic_prefixes: set[str],
         credentials_provider: Callable[[], Awaitable[AwsCredentials | None]],
         on_reported: Callable[[str, dict[str, Any]], None],
+        on_subscribed: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._hass = hass
         self._home_seq = home_seq
         self._prefixes = topic_prefixes or {"mate"}
         self._credentials_provider = credentials_provider
         self._on_reported = on_reported
+        # 구독이 붙은 뒤에 초기 상태를 요청해야 한다. 순서가 뒤바뀌면 응답을 놓친다.
+        self._on_subscribed = on_subscribed
         self._client: Any = None
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
@@ -187,7 +190,18 @@ class NavienSmartMqtt:
         while not self._stopping:
             try:
                 await self._async_connect_once()
+                # `connect()` 는 CONNACK 전에 반환한다. 여기서 기다리지 않으면
+                # 아래 감시 루프가 `connected=False` 를 보고 즉시 빠져나가
+                # 방금 만든 연결을 스스로 끊고 재접속을 반복한다.
+                await self._async_wait_connected()
                 self._attempt = 0
+
+                # 구독이 붙은 뒤 초기 상태를 요청한다. shadow 이벤트는 변화가
+                # 있을 때만 오므로, 이걸 안 하면 아무 조작이 없는 동안 상태가
+                # 영원히 비어 있다.
+                if self._on_subscribed is not None:
+                    await self._on_subscribed()
+
                 # 접속이 살아 있는 동안은 paho 스레드가 일한다. 끊김만 감시한다.
                 while not self._stopping and self.connected:
                     await asyncio.sleep(5)
@@ -203,6 +217,16 @@ class NavienSmartMqtt:
             self._attempt += 1
             _LOGGER.debug("%s초 후 MQTT 재접속", delay)
             await asyncio.sleep(delay)
+
+    async def _async_wait_connected(self, timeout: float = 15.0) -> None:
+        """CONNACK 을 기다린다. `_on_connect` 콜백이 `connected` 를 세운다."""
+        deadline = timeout
+        while deadline > 0:
+            if self._stopping or self.connected:
+                return
+            await asyncio.sleep(0.2)
+            deadline -= 0.2
+        raise TimeoutError(f"{timeout}초 안에 MQTT CONNACK 이 오지 않았습니다.")
 
     async def _async_connect_once(self) -> None:
         creds = await self._credentials_provider()
@@ -224,7 +248,9 @@ class NavienSmartMqtt:
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
-        client.tls_set_context(ssl.create_default_context())
+        # `ssl.create_default_context()` 는 인증서를 디스크에서 읽어 이벤트 루프를
+        # 막는다. HA 가 부팅 때 만들어 캐시해 둔 컨텍스트를 쓴다.
+        client.tls_set_context(get_default_context())
         client.ws_set_options(path=build_signed_ws_path(creds))
 
         self._client = client
