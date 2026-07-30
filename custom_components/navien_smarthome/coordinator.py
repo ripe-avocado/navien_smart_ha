@@ -21,11 +21,17 @@ from .api import (
     NavienSmartAuthError,
     NavienSmartError,
 )
+from .airone import AironeDevice
 from .const import (
+    AIRONE_CMD_CHANGE_MODE,
+    AIRONE_CMD_POWER,
+    AIRONE_CMD_STATUS,
+    AIRONE_UPDATE_INTERVAL_SECONDS,
     DOMAIN,
     OUT_OF_SCOPE_REASONS,
     REPORT_WANTED_NOTES,
     REPORT_WANTED_SERVICE_CODES,
+    SERVICE_AIRONE,
     SERVICE_NAMES,
     SUPPORTED_SERVICE_CODES,
     TOPIC_PREFIX,
@@ -60,6 +66,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 환기청정·보일러 사용자가 제보할 때 이게 유일한 근거가 된다.
         self.raw_devices: list[dict[str, Any]] = []
         self.unsupported: list[dict[str, Any]] = []
+        # 에어원은 매트와 상태 체계가 달라 같은 dict 에 섞지 않는다. 검증이 끝난
+        # 매트 경로를 건드리지 않는 것이 우선이다.
+        self.airone: dict[str, AironeDevice] = {}
         self._mqtt: NavienSmartMqtt | None = None
         self._skipped_logged: set[str] = set()
 
@@ -78,10 +87,20 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         self.raw_devices = raw_devices
         self.unsupported = []
 
+        previous_airone = self.airone
+        airone: dict[str, AironeDevice] = {}
+
         for raw in raw_devices:
-            if raw.get("serviceCode") not in SUPPORTED_SERVICE_CODES:
+            service_code = raw.get("serviceCode")
+            if service_code not in SUPPORTED_SERVICE_CODES:
                 self.unsupported.append(raw)
                 self._log_unsupported(raw)
+                continue
+
+            if service_code == SERVICE_AIRONE:
+                parsed = self._parse_airone(raw, previous_airone)
+                if parsed is not None:
+                    airone[parsed.device_id] = parsed
                 continue
 
             device = NavienDevice.parse(raw)
@@ -111,7 +130,110 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
 
             devices[device.device_id] = device
 
+        self.airone = airone
+        self._tune_interval()
+        await self._async_update_air_sensors()
         return devices
+
+    def _tune_interval(self) -> None:
+        """에어원이 있으면 폴링을 짧게 한다.
+
+        매트 상태는 MQTT 로 오지만 **공기질은 REST 로만 읽을 수 있다.** 매트 기준
+        주기(15분)로는 미세먼지 수치가 쓸모없어진다.
+        """
+        wanted = timedelta(
+            seconds=(
+                AIRONE_UPDATE_INTERVAL_SECONDS
+                if self.airone
+                else UPDATE_INTERVAL_SECONDS
+            )
+        )
+        if self.update_interval != wanted:
+            _LOGGER.debug("폴링 주기를 %s 로 바꿉니다", wanted)
+            self.update_interval = wanted
+
+    def _parse_airone(
+        self, raw: dict[str, Any], previous: dict[str, AironeDevice]
+    ) -> AironeDevice | None:
+        """에어원 하나를 해석한다. 만들 수 없으면 이유를 로그에 남긴다."""
+        device = AironeDevice.parse(raw)
+        if device is None:
+            self._log_skip(
+                raw,
+                "능력 메타데이터(did.roomController)가 없어 엔티티를 만들지 않습니다. "
+                "제보해 주시면 넓힐 수 있습니다",
+            )
+            self.unsupported.append(raw)
+            return None
+
+        if not device.is_v2_generation:
+            # 레거시 세대는 봉투와 토픽이 전혀 달라 같은 코드로 못 쏜다.
+            self._log_skip(
+                raw,
+                f"modelCode {device.model_code} 는 구세대 통신을 씁니다. "
+                "지금 구현은 신형(modelCode 1000 이상)만 다룹니다",
+            )
+            self.unsupported.append(raw)
+            return None
+
+        if not device.selectable_modes:
+            self._log_skip(
+                raw,
+                "서버가 고를 수 있는 운전 모드를 알려주지 않아 모드 선택을 "
+                "만들지 않습니다",
+            )
+
+        # 이미 받아둔 실시간 상태와 공기질을 잃지 않는다.
+        if (old := previous.get(device.device_id)) is not None:
+            device.reported = old.reported
+            device.air_sensors = old.air_sensors
+            device.sensor_kinds = old.sensor_kinds
+
+        self._log_airone_unverified(device)
+        return device
+
+    def _log_airone_unverified(self, device: AironeDevice) -> None:
+        """에어원 지원이 실기기 미검증임을 한 번만 알린다.
+
+        규약은 앱에서 그대로 뽑았지만 실기기로 확인한 적이 없다. 조용히 켜두면
+        사용자는 되는 줄 알고 자동화를 만든다.
+        """
+        key = f"{device.device_seq}:airone_unverified"
+        if key in self._skipped_logged:
+            return
+        self._skipped_logged.add(key)
+        _LOGGER.warning(
+            "환기청정을 찾았습니다 (%s, modelCode=%s). 지원을 켰지만 **실기기로 "
+            "검증하지 않았습니다** — 동작하지 않거나 값이 이상할 수 있습니다. "
+            "결과가 어떻든 이슈로 알려 주시면 고칠 수 있습니다. 운전 모드 %d가지를 "
+            "서버 메타데이터에서 찾았습니다.",
+            device.nickname,
+            device.model_code,
+            len(device.selectable_modes),
+        )
+
+    async def _async_update_air_sensors(self) -> None:
+        """공기질 값을 읽는다.
+
+        상태 메시지에는 센서 종류만 있고 값이 없다 — 값은 `/air-sensor` 에만 있다.
+        """
+        for device in self.airone.values():
+            if not device.available:
+                continue
+            try:
+                airs = await self.api.async_get_air_sensor(
+                    self.home_seq, device.device_seq
+                )
+            except NavienSmartError as err:
+                _LOGGER.debug("%s 공기질 조회 실패: %s", device.nickname, err)
+                continue
+            unknown = device.set_air_sensors(airs)
+            if unknown:
+                self._log_skip(
+                    device.raw,
+                    "확인되지 않은 공기질 항목은 만들지 않습니다: "
+                    + ", ".join(sorted(set(unknown))),
+                )
 
     def _log_unsupported(self, raw: dict[str, Any]) -> None:
         """지원하지 않는 기기를 만나면 이유를 알린다.
@@ -186,6 +308,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             for device in (self.data or {}).values()
             if (prefix := TOPIC_PREFIX.get(device.service_code))
         }
+        if self.airone and (prefix := TOPIC_PREFIX.get(SERVICE_AIRONE)):
+            prefixes.add(prefix)
         if not prefixes:
             _LOGGER.debug("구독할 기기가 없어 MQTT 를 시작하지 않습니다")
             return
@@ -199,6 +323,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             credentials_provider=self._async_aws_credentials,
             on_reported=self._handle_reported,
             on_subscribed=self._async_request_initial_state,
+            on_airone_reported=self._handle_airone_reported,
         )
         await self._mqtt.async_start()
 
@@ -223,6 +348,16 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 _LOGGER.debug("%s 에 초기 상태를 요청했습니다", device.nickname)
             except NavienSmartError as err:
                 _LOGGER.warning("%s 초기 상태 요청 실패: %s", device.nickname, err)
+
+        for airone in self.airone.values():
+            if not airone.available:
+                _LOGGER.debug("%s 는 오프라인이라 상태를 요청하지 않습니다", airone.nickname)
+                continue
+            try:
+                await self._async_airone_request(airone, AIRONE_CMD_STATUS, None)
+                _LOGGER.debug("%s 에 초기 상태를 요청했습니다", airone.nickname)
+            except NavienSmartError as err:
+                _LOGGER.warning("%s 초기 상태 요청 실패: %s", airone.nickname, err)
 
     async def async_stop_mqtt(self) -> None:
         if self._mqtt is not None:
@@ -257,7 +392,66 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         device.reported = reported
         self.async_set_updated_data(devices)
 
+    @callback
+    def _handle_airone_reported(self, device_id: str, reported: dict[str, Any]) -> None:
+        """에어원 상태를 반영한다. HA 이벤트 루프에서 불린다.
+
+        기기목록의 `deviceId` 와 `did.roomController.deviceId` 가 다를 수 있어
+        양쪽으로 찾는다.
+        """
+        device = self.airone.get(device_id)
+        if device is None:
+            device = next(
+                (d for d in self.airone.values() if d.physical_device_id == device_id),
+                None,
+            )
+        if device is None:
+            _LOGGER.debug("모르는 에어원의 보고 무시: %s", device_id)
+            return
+        device.reported = reported
+        self.async_set_updated_data(self.data or {})
+
     # -- 제어 --------------------------------------------------------------
+
+    async def _async_airone_request(
+        self,
+        device: AironeDevice,
+        command: str,
+        desired: dict[str, Any] | None,
+    ) -> None:
+        client_id = self._mqtt.client_id if self._mqtt is not None else ""
+        await self.api.async_airone_request(
+            self.home_seq,
+            device_seq=device.device_seq,
+            service_code=device.service_code,
+            model_code=device.model_code,
+            physical_device_id=device.physical_device_id,
+            command=command,
+            client_id=client_id,
+            desired=desired,
+        )
+
+    async def async_airone_power(self, device: AironeDevice, turn_on: bool) -> None:
+        try:
+            await self._async_airone_request(
+                device, AIRONE_CMD_POWER, device.build_power_desired(turn_on)
+            )
+        except NavienSmartAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+
+    async def async_airone_mode(
+        self,
+        device: AironeDevice,
+        mode: int,
+        option: int,
+        air_volume: int | None = None,
+        humidity: int | None = None,
+    ) -> None:
+        desired = device.build_mode_desired(mode, option, air_volume, humidity)
+        try:
+            await self._async_airone_request(device, AIRONE_CMD_CHANGE_MODE, desired)
+        except NavienSmartAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
 
     async def async_send(self, device: NavienDevice, desired: dict[str, Any]) -> None:
         """명령을 보낸 뒤 낙관적 갱신은 하지 않는다.

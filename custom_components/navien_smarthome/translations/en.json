@@ -38,6 +38,14 @@
       "power": {
         "name": "Power"
       }
+    },
+    "select": {
+      "airone_mode": {
+        "name": "Mode"
+      },
+      "airone_wind": {
+        "name": "Fan speed"
+      }
     }
   }
 }

@@ -38,6 +38,14 @@
       "power": {
         "name": "전원"
       }
+    },
+    "select": {
+      "airone_mode": {
+        "name": "운전 모드"
+      },
+      "airone_wind": {
+        "name": "풍량"
+      }
     }
   }
 }

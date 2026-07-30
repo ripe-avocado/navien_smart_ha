@@ -10,8 +10,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
+from .airone import AironeDevice
 from .coordinator import NavienSmartCoordinator
-from .entity import NavienSmartEntity
+from .entity import AironeEntity, NavienSmartEntity
 from .models import NavienDevice
 
 
@@ -21,12 +22,16 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[NavienSmartEntity] = []
+    entities: list[BinarySensorEntity] = []
     for device in (coordinator.data or {}).values():
         control = device.heat_control
         if control is not None and control.enable_safe and control.safe_value is not None:
             entities.append(NavienSmartHighTempWarning(coordinator, device))
         entities.append(NavienSmartErrorProblem(coordinator, device))
+
+    entities.extend(
+        AironeErrorProblem(coordinator, airone) for airone in coordinator.airone.values()
+    )
     async_add_entities(entities)
 
 
@@ -72,3 +77,21 @@ class NavienSmartErrorProblem(NavienSmartEntity, BinarySensorEntity):
         if device is None or device.error_code is None:
             return None
         return device.error_code != 0
+
+
+class AironeErrorProblem(AironeEntity, BinarySensorEntity):
+    """오류 여부. 방 컨트롤러와 실외기 중 하나라도 오류면 켜진다."""
+
+    _attr_name = "오류"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:
+        super().__init__(coordinator, device)
+        self._attr_unique_id = f"{device.device_id}_problem"
+
+    @property
+    def is_on(self) -> bool | None:
+        device = self.device
+        if device is None or device.error_code is None:
+            return None
+        return device.has_error

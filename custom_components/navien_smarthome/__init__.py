@@ -24,6 +24,8 @@ PLATFORMS: list[Platform] = [
     # 온도형(`0.5C`)은 climate, 단계형(`1.0L`)은 select 로 갈린다. 둘 다 등록하고
     # 각 플랫폼이 자기 축의 기기만 골라 간다.
     Platform.CLIMATE,
+    # 에어원 목표 습도만 쓴다. 매트 단계는 `select` 다 — 단계는 연속량이 아니다.
+    Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
@@ -50,7 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NavienSmartConfigEntry) 
     coordinator = NavienSmartCoordinator(hass, entry, api, int(home_seq))
     await coordinator.async_config_entry_first_refresh()
 
-    if not coordinator.data:
+    if not coordinator.data and not coordinator.airone:
         _LOGGER.warning(
             "home %s 에서 지원 가능한 기기를 찾지 못했습니다. "
             "건너뛴 기기가 있으면 위 경고를 확인해 주세요.",

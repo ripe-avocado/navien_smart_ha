@@ -1,6 +1,11 @@
 """나비엔 스마트 통합 상수.
 
-여기 있는 값은 전부 앱에서 추출해 실기기로 검증한 것이다. 추측한 값은 없다.
+**추측한 값은 없다.** 전부 앱에서 직접 추출했다. 다만 검증 수준이 다르다.
+
+- 매트(200) 관련 값 — 실기기로 검증했다
+- 에어원(300) 관련 값 — 앱에서 추출만 했다. **실기기에 보내본 적이 없다**
+
+에어원 절은 그 사실을 각 항목에 적어 두었다.
 """
 
 from __future__ import annotations
@@ -43,19 +48,14 @@ SERVICE_AIRONE: Final = 300
 SERVICE_SCADA: Final = 400
 SERVICE_HOMEAUTO: Final = 500
 
-# v1 은 매트만 지원한다. 나머지는 실기기 검증이 없어 넣지 않는다.
-#
 # 보일러(100)는 매트와 체계가 다르다 — 상태 모델이 컨트롤러 종류별로 갈리고
 # (`GetStatusData` 3,500줄 + 1st/2nd/NRM35), 각방 제어가 비트마스크이며 온도값이
 # 모델별로 인코딩된다(`decodeTempValueForModel`). 재현을 잘못하면 엉뚱한 온도가 간다.
-#
-# 환기청정(300)은 shadow 가 아니라 서버가 지정한 `requestTopic`/`responseTopic` 에
-# `sessionId` 를 실어 주고받고, 상태가 패킷 디스크립터로 쪼개져 있다.
-SUPPORTED_SERVICE_CODES: Final = (SERVICE_MATE,)
+SUPPORTED_SERVICE_CODES: Final = (SERVICE_MATE, SERVICE_AIRONE)
 
 # 제보를 받아 지원을 넓힐 대상. 진단 내보내기에 **원본을 전부** 담고 제보를 요청한다.
 # 지원을 약속하는 목록이 아니다 — 데이터를 모아야 판단이 되는 목록이다.
-REPORT_WANTED_SERVICE_CODES: Final = (SERVICE_AIRONE, SERVICE_BOILER)
+REPORT_WANTED_SERVICE_CODES: Final = (SERVICE_BOILER,)
 
 # 범위 밖. 제보를 요청하지 않고, 진단에도 요약만 남긴다.
 OUT_OF_SCOPE_REASONS: Final = {
@@ -65,10 +65,6 @@ OUT_OF_SCOPE_REASONS: Final = {
 
 # 제보를 요청할 때 함께 알릴 현황. 낙관도 비관도 하지 않는다.
 REPORT_WANTED_NOTES: Final = {
-    SERVICE_AIRONE: (
-        "매트와 통신 방식이 달라(서버가 지정한 요청/응답 토픽 + 패킷 구조) "
-        "실기기 정보가 필요합니다"
-    ),
     SERVICE_BOILER: (
         "상태 모델이 컨트롤러 종류별로 갈리고 각방 제어가 비트마스크로 인코딩되어 "
         "있어 매트보다 오래 걸립니다. 다만 자료를 모으는 중입니다"
@@ -83,9 +79,114 @@ SERVICE_NAMES: Final = {
     SERVICE_HOMEAUTO: "스마트홈",
 }
 
-# MQTT 구독 토픽 접두사. 매트는 실측 확인됨 (`{homeSeq}/mate/{deviceId}`).
-# 보일러·에어원 접두사는 미확인이라 넣지 않는다.
-TOPIC_PREFIX: Final = {SERVICE_MATE: "mate"}
+# MQTT 구독 토픽 접두사. 앱의 `HomeViewModel` 이 `/{접두사}/#` 로 구독한다 —
+# `smarttok`(보일러) `mate` `airone` `scada` `homeauto` 다섯 개가 전부다.
+# 매트는 실측 확인됨. 보일러는 지원하지 않으므로 넣지 않는다.
+#
+# 에어원 **제어**는 이 체계가 아니라 `AIRONE_TOPIC_FMT` 를 쓴다. 구독만 여기다.
+TOPIC_PREFIX: Final = {SERVICE_MATE: "mate", SERVICE_AIRONE: "airone"}
+
+# --- 에어원 (환기청정) ----------------------------------------------------
+#
+# 아래 값은 전부 앱에서 직접 확인한 것이다 (`AironeConstants`, `PubSubData`,
+# `AironeModeCode`). **다만 실기기에 보내본 적이 없다.**
+
+# `AironeConstants.aironeMqttPayload()` 의 `Integer.parseInt(modelCode) < 1000`
+# 분기. 이 하나로 토픽과 봉투가 전부 갈린다. 레거시는 봉투가 달라 같은 코드로
+# 못 쏘므로 건너뛴다.
+AIRONE_V2_MIN_MODEL_CODE: Final = 1000
+
+AIRONE_TOPIC_FMT: Final = "cmd/rc/v2/{model_code}/{device_id}/remote/{command}"
+
+AIRONE_CMD_STATUS: Final = "status"
+AIRONE_CMD_POWER: Final = "power"
+AIRONE_CMD_CHANGE_MODE: Final = "change-mode"
+
+# `running` — V2.1 세대. 레거시는 반대(운전=2)다. 세대를 안 가리면 전원이 뒤집힌다.
+AIRONE_RUN_ON: Final = 1
+AIRONE_RUN_OFF: Final = 2
+AIRONE_RUN_AWAY: Final = 3
+AIRONE_RUN_NAMES: Final = {
+    AIRONE_RUN_ON: "운전",
+    AIRONE_RUN_OFF: "정지",
+    AIRONE_RUN_AWAY: "외출",
+}
+
+# `ROOM_OPERATION_MODE_*` + `AironeModeCode.uiBaseLabel`
+AIRONE_MODE_NAMES: Final = {
+    0: "없음",
+    4: "환기",
+    6: "요리",
+    8: "청정",
+    9: "제습",
+    10: "환기제습",
+    12: "자동",
+    17: "바이패스",
+}
+
+# `ROOM_OPERATION_OPTION_*`. 1 은 "옵션 없음" 이라 라벨을 붙이지 않는다.
+AIRONE_OPTION_NONE: Final = 1
+AIRONE_OPTION_SLEEP: Final = 4
+AIRONE_OPTION_NAMES: Final = {
+    2: "터보",
+    3: "절전",
+    AIRONE_OPTION_SLEEP: "숙면",
+    5: "기저",
+    6: "기저",
+}
+
+# `ROOM_OPERATION_WIND_*`. **이 표에 없는 값은 보내지 않는다** —
+# `ModeDid.airVolume` 이 비트마스크일 가능성이 남아 있다 (명세 6-5 참조).
+AIRONE_WIND_NAMES: Final = {
+    1: "미풍",
+    2: "약풍",
+    3: "강풍",
+    4: "자동",
+    5: "기저",
+    6: "기저",
+}
+
+# 앱은 `option != 1` 이면 풍량 대신 옵션 라벨을 보여준다. 숙면(4)만 예외로
+# 풍량을 함께 쓴다 (`AironeModeCode.labelFor`).
+AIRONE_OPTIONS_WITH_WIND: Final = frozenset({AIRONE_OPTION_NONE, AIRONE_OPTION_SLEEP})
+
+# 제습·환기제습에서만 목표 습도를 보여준다. 범위는 서버 `additionalData` 의
+# min/max 를 쓴다 — 여기에 숫자를 적지 않는다.
+AIRONE_MODES_WITH_HUMIDITY: Final = frozenset({9, 10})
+AIRONE_HUMIDITY_TYPE: Final = 1
+
+# `SENSOR_LEVEL_*`
+AIRONE_LEVEL_NAMES: Final = {
+    0: "알 수 없음",
+    1: "좋음",
+    2: "보통",
+    3: "나쁨",
+    4: "매우나쁨",
+}
+
+# `/air-sensor` 의 `airs[].type` — 문자열이다. `SensorDid.type` 의 정수와 다른
+# 체계다. 여기 없는 종류는 만들지 않고 로그만 남긴다.
+#
+# `unit` 이 None 인 항목은 앱도 숫자를 안 보여준다 (`getValueText` 가 `level` 을
+# 그대로 반환한다). 숫자를 만들어 붙이지 않는다.
+AIRONE_SENSOR_KINDS: Final = {
+    "pm1Dot0": ("극초미세먼지", "㎍/㎥"),
+    "pm2Dot5": ("초미세먼지", "㎍/㎥"),
+    "pm10": ("미세먼지", "㎍/㎥"),
+    "co2": ("이산화탄소", "ppm"),
+    "tvoc": ("휘발성유기화합물", None),
+    "radon": ("라돈", None),
+    "temperature": ("온도", "°C"),
+    "humidity": ("습도", "%"),
+    "total": ("종합 공기질", None),
+}
+
+
+def airone_mode_label(mode: int, option: int) -> str:
+    """운전 모드 조합을 앱과 같은 말로 옮긴다."""
+    base = AIRONE_MODE_NAMES.get(mode, f"알 수 없음({mode})")
+    suffix = AIRONE_OPTION_NAMES.get(option)
+    return f"{base} · {suffix}" if suffix else base
 
 # --- 제어 축 (heatControl.unit) -------------------------------------------
 
@@ -187,3 +288,7 @@ CONF_HOME_SEQ: Final = "home_seq"
 
 # 재접속 후 초기 동기화용. 상태는 MQTT 푸시로 오므로 폴링 주기를 짧게 둘 이유가 없다.
 UPDATE_INTERVAL_SECONDS: Final = 900
+
+# 에어원이 있으면 짧게 돈다. 공기질 값은 MQTT 로 오지 않고 `/air-sensor` 를 읽어야
+# 하는데, 15분마다 갱신되는 미세먼지 수치는 쓸 수가 없다. 앱은 60초마다 읽는다.
+AIRONE_UPDATE_INTERVAL_SECONDS: Final = 300

@@ -33,6 +33,10 @@ _LOGGER = logging.getLogger(__name__)
 _ACCEPTED_SUFFIX = "/update/accepted"
 _RECONNECT_DELAYS = (5, 15, 30, 60, 120, 300)
 
+# 에어원 메시지를 매트 메시지와 가르는 기준. 앱도 구독 토픽 문자열로 판별한다
+# (`HomeViewModel` 의 `/airone/#` / `/mate/#` 분기).
+AIRONE_PREFIX = "airone"
+
 
 def _uri_encode(value: str) -> str:
     """SigV4 정규화 인코딩. unreserved 문자만 남긴다.
@@ -126,6 +130,42 @@ def extract_reported(payload: bytes, topic: str) -> tuple[str, dict[str, Any]] |
     return device_id, reported
 
 
+def extract_airone_reported(
+    payload: bytes, topic: str
+) -> tuple[str, dict[str, Any]] | None:
+    """에어원 상태 메시지에서 `reported` 를 꺼낸다.
+
+    매트와 봉투가 다르다 — shadow 가 아니므로 `/update/accepted` 도 없고,
+    `state` 한 겹도 없다. `{topic, payload: {reported: {...}}}` 형태다
+    (`AironeGetStatus.AironeStatusEachRoom`).
+    """
+    try:
+        event = json.loads(payload)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        _LOGGER.debug("JSON 이 아닌 에어원 메시지 무시: topic=%s", topic)
+        return None
+    if not isinstance(event, dict):
+        return None
+
+    inner = event.get("payload")
+    reported = inner.get("reported") if isinstance(inner, dict) else None
+    if not isinstance(reported, dict):
+        # 명령을 접수했다는 응답일 수 있다. 상태가 아니면 쓰지 않는다.
+        return None
+    if not any(key in reported for key in ("roomController", "odu", "airMonitor")):
+        return None
+
+    # `{homeSeq}/airone/{deviceId}` 의 마지막 조각이 기기목록의 deviceId 다.
+    device_id = topic.rsplit("/", 1)[-1]
+    if not device_id or device_id == AIRONE_PREFIX:
+        controller = reported.get("roomController")
+        if isinstance(controller, dict):
+            device_id = str(controller.get("deviceId") or "")
+    if not device_id:
+        return None
+    return device_id, reported
+
+
 class NavienSmartMqtt:
     """구독 전용 MQTT 클라이언트. 발행하지 않는다 (제어는 REST 로 간다)."""
 
@@ -138,6 +178,7 @@ class NavienSmartMqtt:
         credentials_provider: Callable[[], Awaitable[AwsCredentials | None]],
         on_reported: Callable[[str, dict[str, Any]], None],
         on_subscribed: Callable[[], Awaitable[None]] | None = None,
+        on_airone_reported: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._hass = hass
         self._home_seq = home_seq
@@ -145,8 +186,10 @@ class NavienSmartMqtt:
         self._prefixes = topic_prefixes or {"mate"}
         self._credentials_provider = credentials_provider
         self._on_reported = on_reported
+        self._on_airone_reported = on_airone_reported
         # 구독이 붙은 뒤에 초기 상태를 요청해야 한다. 순서가 뒤바뀌면 응답을 놓친다.
         self._on_subscribed = on_subscribed
+        self._client_id = ""
         self._client: Any = None
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
@@ -155,7 +198,14 @@ class NavienSmartMqtt:
 
     @property
     def topics(self) -> list[str]:
-        return [f"{self._home_seq}/{prefix}/+" for prefix in sorted(self._prefixes)]
+        # 앱과 같은 `#` 를 쓴다 (`HomeViewModel` 이 `/{prefix}/#` 로 구독한다).
+        # 에어원 응답이 한 단계 더 깊게 올 수 있어 `+` 로는 놓친다.
+        return [f"{self._home_seq}/{prefix}/#" for prefix in sorted(self._prefixes)]
+
+    @property
+    def client_id(self) -> str:
+        """접속 중인 MQTT clientId. 에어원 제어 봉투에 넣어야 한다."""
+        return self._client_id
 
     async def async_start(self) -> None:
         if self._task is None:
@@ -241,6 +291,8 @@ class NavienSmartMqtt:
         # `homeSeq` 를 쓰던 것을 고쳤다. A/B 로 확인했을 때 둘 다 구독은 됐지만,
         # 서버 정책이 나중에 clientId 를 보게 되면 앱과 다른 쪽이 먼저 막힌다.
         client_id = f"{uuid.uuid4()}-U{self._user_seq}"
+        # 에어원 제어 봉투에 이 값을 넣어야 서버가 응답을 되돌린다.
+        self._client_id = client_id
         try:
             client = mqtt.Client(
                 mqtt.CallbackAPIVersion.VERSION2,
@@ -283,6 +335,12 @@ class NavienSmartMqtt:
         _LOGGER.debug("MQTT 연결이 끊겼습니다 %s", args[:1])
 
     def _on_message(self, _client: Any, _userdata: Any, message: Any) -> None:
+        # 구독 토픽으로 갈린다 — 앱도 같은 방식이다. 봉투가 완전히 달라서
+        # 한 파서로 둘 다 다루면 한쪽이 조용히 버려진다.
+        if f"/{AIRONE_PREFIX}/" in message.topic:
+            self._handle_airone_message(message)
+            return
+
         result = extract_reported(message.payload, message.topic)
         if result is None:
             # 버린 이벤트도 남긴다. 이게 없어서 "상태가 안 온다" 와 "와도 버린다" 를
@@ -297,3 +355,21 @@ class NavienSmartMqtt:
         )
         # paho 스레드에서 HA 상태를 직접 건드리면 안 된다.
         self._hass.loop.call_soon_threadsafe(self._on_reported, device_id, reported)
+
+    def _handle_airone_message(self, message: Any) -> None:
+        if self._on_airone_reported is None:
+            _LOGGER.debug("에어원 메시지 무시 (처리기 없음): %s", message.topic)
+            return
+        result = extract_airone_reported(message.payload, message.topic)
+        if result is None:
+            _LOGGER.debug("에어원 이벤트 무시 (reported 없음): %s", message.topic)
+            return
+        device_id, reported = result
+        _LOGGER.debug(
+            "에어원 reported 수신: %s roomController=%s",
+            device_id,
+            reported.get("roomController"),
+        )
+        self._hass.loop.call_soon_threadsafe(
+            self._on_airone_reported, device_id, reported
+        )

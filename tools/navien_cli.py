@@ -21,9 +21,11 @@ import os
 import re
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -793,6 +795,257 @@ def cmd_whoami(args: argparse.Namespace) -> int:
     return 0
 
 
+
+# ---------------------------------------------------------------- 에어원
+
+AIRONE_MODE_NAMES = {0: "없음", 4: "환기", 6: "요리", 8: "청정", 9: "제습",
+                     10: "환기제습", 12: "자동", 17: "바이패스"}
+AIRONE_OPTION_NAMES = {1: "", 2: "터보", 3: "절전", 4: "숙면", 5: "기저", 6: "기저"}
+AIRONE_WIND_NAMES = {1: "미풍", 2: "약풍", 3: "강풍", 4: "자동", 5: "기저", 6: "기저"}
+AIRONE_RUN_NAMES = {1: "운전", 2: "정지", 3: "외출"}
+
+
+def _airone_mode_label(mode: Any, option: Any) -> str:
+    base = AIRONE_MODE_NAMES.get(mode, f"알 수 없음({mode})")
+    suffix = AIRONE_OPTION_NAMES.get(option) or ""
+    return f"{base} · {suffix}" if suffix else base
+
+
+def _airone_prepare(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any], str, int, int]:
+    """세션과 기기를 잡고, 에어원인지·세대가 맞는지 검사한다."""
+    session = _load_session()
+    home_seq = args.home_seq or session["homes"][0]["homeSeq"]
+    user_seq = session["userSeq"]
+    token = session["accessToken"]
+    dev = _find_device(token, home_seq, user_seq, args.device_seq)
+
+    if dev.get("serviceCode") != 300:
+        raise NavienError(
+            f"deviceSeq {args.device_seq} 의 serviceCode 는 {dev.get('serviceCode')} 다. "
+            "이 명령은 환기청정(300) 전용이다."
+        )
+    try:
+        model_code = int(dev.get("modelCode"))
+    except (TypeError, ValueError):
+        raise NavienError(f"modelCode '{dev.get('modelCode')}' 를 숫자로 읽지 못했다.") from None
+    if model_code < 1000:
+        raise NavienError(
+            f"modelCode {model_code} 는 구세대 통신을 쓴다 (봉투와 토픽이 다르다).\n"
+            "  이 명령은 신형(1000 이상)만 다룬다. 추측으로 보내지 않는다."
+        )
+    return session, dev, token, home_seq, user_seq
+
+
+def _airone_body(dev: dict[str, Any], command: str, client_id: str,
+                 desired: dict[str, Any] | None) -> str:
+    """`AironePubComm` 봉투를 만든다. 매트와 모양이 다르다."""
+    rc = _dig(dev, "Properties", "data", "did", "reported", "roomController") or {}
+    physical = rc.get("deviceId") or dev["deviceId"]
+    topic = f"cmd/rc/v2/{dev['modelCode']}/{physical}/remote/{command}"
+    payload: dict[str, Any] = {
+        "clientId": client_id,
+        "sessionId": str(int(time.time() * 1000)),
+        "requestTopic": topic,
+        "responseTopic": f"{topic}/res",
+    }
+    if desired is not None:
+        payload["state"] = {"desired": desired}
+    body = json.dumps({"serviceCode": dev["serviceCode"], "payload": payload},
+                      ensure_ascii=False)
+    for value in (payload["responseTopic"], topic):
+        quoted = json.dumps(value)
+        body = body.replace(quoted, quoted.replace("/", "\\/"))
+    return body
+
+
+def cmd_airone_modes(args: argparse.Namespace) -> int:
+    """서버가 알려준 운전 조합을 표로 본다. **아무것도 보내지 않는다.**
+
+    이 표가 통합이 선택 항목을 만드는 근거다. 제보할 때 이것부터 붙이면 된다.
+    """
+    _, dev, _, _, _ = _airone_prepare(args)
+    did = _dig(dev, "Properties", "data", "did", "reported") or {}
+    rc = did.get("roomController") or {}
+    odu = did.get("odu") or {}
+
+    print(f"대상     : deviceSeq {args.device_seq}  \"{_dig(dev, 'Properties', 'nickName', 'mainItem')}\"")
+    print(f"모델     : {dev.get('modelName')}  modelCode={dev.get('modelCode')}")
+    print(f"실내기   : deviceId={_mask(rc.get('deviceId'))} version={rc.get('version')} "
+          f"zoneId={rc.get('zoneId')}")
+    print(f"실외기   : modelCode={odu.get('modelCode')} version={odu.get('version')} "
+          f"airCapacity={odu.get('airCapacity')}")
+    print(f"연결     : {dev.get('connected')}")
+    print()
+
+    modes = rc.get("mode") or []
+    if not modes:
+        print("서버가 mode 목록을 주지 않았다. 통합도 모드 선택을 만들 수 없다.")
+        return 0
+
+    print(f"운전 조합 {len(modes)}개:")
+    print(f"  {'mode':>5} {'option':>7} {'airVolume':>10} {'고를수있음':>10}  라벨")
+    for item in modes:
+        wind = item.get("airVolume")
+        wind_txt = f"{wind}"
+        if wind in AIRONE_WIND_NAMES:
+            wind_txt = f"{wind}({AIRONE_WIND_NAMES[wind]})"
+        elif wind is not None:
+            wind_txt = f"{wind}(?)"
+        print(f"  {_fmt(item.get('name')):>5} {_fmt(item.get('option')):>7} {wind_txt:>10} "
+              f"{str(bool(item.get('configurable'))):>10}  "
+              f"{_airone_mode_label(item.get('name'), item.get('option'))}")
+        for extra in item.get("additionalData") or []:
+            print(f"        additionalData type={extra.get('type')} "
+                  f"min={extra.get('min')} max={extra.get('max')} value={extra.get('value')}")
+
+    unknown = sorted({w for i in modes
+                      if (w := i.get("airVolume")) is not None and w not in AIRONE_WIND_NAMES})
+    if unknown:
+        print()
+        print(f"※ 확인되지 않은 airVolume 값: {unknown}")
+        print("  단일값이 아니라 비트마스크일 수 있다. 통합은 이 값을 보내지 않는다.")
+        print("  이 출력을 이슈에 붙여 주시면 판정할 수 있다.")
+
+    sensors = rc.get("sensor") or []
+    if sensors:
+        print()
+        print("센서 종류(정수 코드 — 뜻은 미확인):")
+        for s in sensors:
+            print(f"  type={s.get('type')} min={s.get('min')} max={s.get('max')}")
+    return 0
+
+
+def cmd_airone_status(args: argparse.Namespace) -> int:
+    """상태를 올려달라고 요청한다.
+
+    응답은 MQTT 로 온다 — `watch --prefix airone` 를 따로 띄워 두고 이걸 실행한다.
+    공기질은 REST 로 바로 읽는다.
+    """
+    _, dev, token, home_seq, user_seq = _airone_prepare(args)
+    client_id = f"{uuid.uuid4()}-U{user_seq}"
+    body = _airone_body(dev, "status", client_id, None)
+
+    print(f"대상   : deviceSeq {args.device_seq}  \"{_dig(dev, 'Properties', 'nickName', 'mainItem')}\"")
+    print(f"연결   : {dev.get('connected')}")
+    print()
+    print("보낼 본문 (상태 조회 — state 가 없다):")
+    print("  " + body)
+    print()
+
+    if not args.yes:
+        print("실제로 보내려면 --yes 를 붙인다. 아무것도 보내지 않고 종료한다.")
+        return 0
+
+    res = _api("POST", f"/devices/{args.device_seq}/control", token,
+               query={"homeSeq": home_seq, "userSeq": user_seq}, raw_body=body)
+    print(f"전송 완료. code={res.get('code')} msg={res.get('msg')}")
+    print("상태 응답은 MQTT 로 온다 — 다른 창에서 `watch --prefix airone` 로 확인한다.")
+    print()
+
+    try:
+        air = _api("GET", f"/devices/{args.device_seq}/air-sensor", token,
+                   query={"homeSeq": home_seq, "userSeq": user_seq})
+    except NavienError as exc:
+        print(f"공기질 조회 실패: {exc}")
+        return 0
+
+    print("공기질 (/air-sensor):")
+    print("  " + json.dumps(air.get("data"), ensure_ascii=False))
+    return 0
+
+
+def cmd_airone_control(args: argparse.Namespace) -> int:
+    """운전 모드·풍량·습도를 바꾼다. **기기가 실제로 반응한다.**
+
+    서버가 알려준 조합에 없는 값은 거부한다. 추측으로 보내지 않는다.
+    """
+    _, dev, token, home_seq, user_seq = _airone_prepare(args)
+    rc_did = _dig(dev, "Properties", "data", "did", "reported", "roomController") or {}
+    modes = rc_did.get("mode") or []
+
+    if args.power is not None:
+        running = 1 if args.power == "on" else 2
+        controller: dict[str, Any] = {"deviceId": rc_did.get("deviceId") or dev["deviceId"],
+                                      "running": running}
+        if rc_did.get("zoneId") is not None:
+            controller["zoneId"] = rc_did["zoneId"]
+        command, desired = "power", {"roomController": controller}
+        summary = f"전원 {args.power} (running={running})"
+    else:
+        if args.mode is None:
+            raise NavienError("--power 또는 --mode 중 하나는 지정한다.")
+        option = args.option
+        matching = [m for m in modes
+                    if m.get("name") == args.mode and m.get("option") == option]
+        if not matching:
+            available = sorted({(m.get("name"), m.get("option")) for m in modes})
+            raise NavienError(
+                f"서버가 알려준 조합에 (mode={args.mode}, option={option}) 이 없다.\n"
+                f"  있는 조합: {available}\n"
+                "  없는 조합을 보내지 않는다. `airone-modes` 로 확인한다."
+            )
+
+        controller = {"mode": args.mode, "option": option}
+        if args.wind is not None:
+            allowed = sorted({w for m in matching
+                              if (w := m.get("airVolume")) in AIRONE_WIND_NAMES})
+            if args.wind not in allowed:
+                raise NavienError(
+                    f"풍량 {args.wind} 는 이 조합에서 서버가 알려준 값이 아니다.\n"
+                    f"  가능한 값: {allowed or '없음'}"
+                )
+            controller["airVolume"] = args.wind
+        if args.humidity is not None:
+            bounds = None
+            for m in matching:
+                for extra in m.get("additionalData") or []:
+                    if extra.get("type") == 1 and extra.get("min") is not None:
+                        bounds = (extra["min"], extra["max"])
+                        break
+            if bounds is None:
+                raise NavienError(
+                    "이 조합에는 서버가 습도 범위를 알려주지 않았다. 습도를 보내지 않는다."
+                )
+            if not (bounds[0] <= args.humidity <= bounds[1]):
+                raise NavienError(f"습도 {args.humidity} 는 범위 {bounds[0]}~{bounds[1]} 를 벗어난다.")
+            controller["additionalData"] = {"type": 1, "value": args.humidity}
+
+        command, desired = "change-mode", {"roomController": controller}
+        summary = _airone_mode_label(args.mode, option)
+        if args.wind is not None:
+            summary += f", 풍량 {args.wind}({AIRONE_WIND_NAMES.get(args.wind)})"
+        if args.humidity is not None:
+            summary += f", 목표습도 {args.humidity}%"
+
+    client_id = f"{uuid.uuid4()}-U{user_seq}"
+    body = _airone_body(dev, command, client_id, desired)
+
+    print(f"대상   : deviceSeq {args.device_seq}  \"{_dig(dev, 'Properties', 'nickName', 'mainItem')}\"")
+    print(f"모델   : {dev.get('modelName')}  modelCode={dev.get('modelCode')}")
+    print(f"연결   : {dev.get('connected')}")
+    print(f"설정   : {summary}")
+    print()
+    print("보낼 본문:")
+    print("  " + body)
+    print()
+    print("※ 이 규약은 앱에서 뽑았지만 실기기로 검증되지 않았다.")
+    print("  결과가 어떻든(되든 안 되든) 이 출력과 함께 알려 주면 고칠 수 있다.")
+    print()
+
+    if not args.yes:
+        print("실제로 보내려면 --yes 를 붙인다. 아무것도 보내지 않고 종료한다.")
+        return 0
+
+    if not dev.get("connected"):
+        print("경고: 기기가 오프라인이다(connected=0).")
+
+    res = _api("POST", f"/devices/{args.device_seq}/control", token,
+               query={"homeSeq": home_seq, "userSeq": user_seq}, raw_body=body)
+    print(f"전송 완료. code={res.get('code')} msg={res.get('msg')}")
+    print("반영은 `watch --prefix airone` 로 확인한다. 이 명령은 재전송하지 않는다.")
+    return 0
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -837,6 +1090,41 @@ def main() -> int:
     p_ctl.add_argument("--right", type=int, help="우측 단계")
     p_ctl.add_argument("--yes", action="store_true", help="실제로 전송한다")
     p_ctl.set_defaults(func=cmd_control)
+
+    p_am = sub.add_parser(
+        "airone-modes",
+        help="환기청정이 지원하는 운전 조합을 본다 (아무것도 보내지 않는다)",
+    )
+    p_am.add_argument("--device-seq", type=int, required=True)
+    p_am.add_argument("--home-seq", type=int)
+    p_am.set_defaults(func=cmd_airone_modes)
+
+    p_as = sub.add_parser(
+        "airone-status",
+        help="환기청정에 상태를 올려달라고 요청하고 공기질을 읽는다",
+    )
+    p_as.add_argument("--device-seq", type=int, required=True)
+    p_as.add_argument("--home-seq", type=int)
+    p_as.add_argument("--yes", action="store_true", help="실제로 전송한다")
+    p_as.set_defaults(func=cmd_airone_status)
+
+    p_ac = sub.add_parser(
+        "airone-control",
+        help="환기청정 운전 모드·풍량·습도를 바꾼다 (--yes 없이는 본문만 출력)",
+    )
+    p_ac.add_argument("--device-seq", type=int, required=True)
+    p_ac.add_argument("--home-seq", type=int)
+    p_ac.add_argument("--power", choices=("on", "off"), help="전원만 바꾼다")
+    p_ac.add_argument("--mode", type=int,
+                      help="운전 모드 (4 환기 / 6 요리 / 8 청정 / 9 제습 / 10 환기제습 / "
+                           "12 자동 / 17 바이패스)")
+    p_ac.add_argument("--option", type=int, default=1,
+                      help="옵션 (1 없음 / 2 터보 / 3 절전 / 4 숙면 / 5,6 기저). 기본 1")
+    p_ac.add_argument("--wind", type=int,
+                      help="풍량 (1 미풍 / 2 약풍 / 3 강풍 / 4 자동 / 5,6 기저)")
+    p_ac.add_argument("--humidity", type=int, help="목표 습도 %% (제습 계열에서만)")
+    p_ac.add_argument("--yes", action="store_true", help="실제로 전송한다")
+    p_ac.set_defaults(func=cmd_airone_control)
 
     p_who = sub.add_parser("whoami", help="저장된 세션 정보를 본다")
     p_who.set_defaults(func=cmd_whoami)

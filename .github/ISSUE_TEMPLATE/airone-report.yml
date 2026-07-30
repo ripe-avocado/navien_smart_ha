@@ -1,33 +1,39 @@
 name: 환기청정(에어원) 제보
-description: 에어원을 쓰고 계시면 이 양식으로 제보해 주세요. 지원 작업의 시작점이 됩니다.
+description: 에어원이 됐는지 안 됐는지 알려 주세요. 어느 쪽이든 도움이 됩니다.
 labels: ["환기청정", "제보"]
 body:
   - type: markdown
     attributes:
       value: |
-        **에어원은 아직 지원하지 않습니다.** 매트와 통신 방식이 달라서
-        (서버가 지정한 요청/응답 토픽 + 패킷 구조) 실기기 정보가 필요합니다.
+        **에어원 지원을 넣었지만 실기기로 검증하지 못했습니다.** 집에 에어원이
+        없습니다. 규약은 앱에서 그대로 뽑았지만, 한 번도 보내본 적이 없습니다.
+
+        그래서 **되든 안 되든 알려 주시는 것이 그대로 도움이 됩니다.**
 
         아래 통계정보 파일 하나만 붙여 주시면 됩니다. 기기ID·IP·MAC·별칭은
         **자동으로 가려집니다.**
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: 결과
+      description: 가장 가까운 것을 골라 주세요.
+      options:
+        - 잘 됩니다
+        - 상태는 보이는데 제어가 안 됩니다
+        - 엔티티가 생겼는데 값이 계속 비어 있습니다
+        - 엔티티가 아예 안 생깁니다
+        - 값이 실제와 다르게 보입니다
+        - 그 밖
+    validations:
+      required: true
 
   - type: input
     id: model
     attributes:
       label: 모델명
       description: 기기 본체나 앱 기기목록에 적힌 이름입니다.
-      placeholder: 예) NRT530-ZCW, NRT-20DS
-    validations:
-      required: true
-
-  - type: dropdown
-    id: kind
-    attributes:
-      label: 종류
-      options:
-        - 환기청정기
-        - 제습 환기청정기
-        - 잘 모르겠습니다
+      placeholder: 예) NRT530-ZCW, TAC550-20S
     validations:
       required: true
 
@@ -39,23 +45,23 @@ body:
         설정 → 기기 및 서비스 → **나비엔 스마트** → ⋮ → `통계정보 다운로드`
 
         내려받은 `.json` 파일을 이 칸에 끌어다 놓거나 내용을 붙여 주세요.
-        파일 안에 에어원 정보가 들어 있습니다. 따로 찾아보실 것은 없습니다.
+        필요한 것이 전부 그 안에 있습니다. 따로 찾아보실 것은 없습니다.
       render: json
     validations:
       required: true
 
   - type: textarea
-    id: app_features
+    id: detail
     attributes:
-      label: 앱에서 되는 기능
+      label: 무엇이 어떻게 달랐나요
       description: |
-        앱 화면에 보이는 것을 적어 주세요. 어떤 엔티티를 만들지 정하는 데 씁니다.
+        앱에서 보이는 것과 HA 에서 보이는 것이 다르면 그 차이를 적어 주세요.
+        가장 빠르게 고칠 수 있는 단서입니다.
       placeholder: |
         예)
-        - 모드: 청정 / 환기 / 환기제습 / 숙면
-        - 풍량 3단계
-        - 각방 제어 있음 (방 4개)
-        - 필터 사용시간 표시
+        - 앱은 「자동 | 자동」인데 HA 는 「환기」로 보입니다
+        - 풍량을 강풍으로 바꾸면 앱에서는 약풍이 됩니다
+        - 목표 습도 슬라이더를 움직여도 아무 일도 안 일어납니다
     validations:
       required: false
 
@@ -65,9 +71,6 @@ body:
       label: 확인 협조
       options:
         - label: >-
-            제어 값을 확정하려면 실기기에 명령을 보내 확인해야 합니다.
+            원인을 좁히려면 명령을 하나씩 보내 확인해야 할 수 있습니다.
             요청하면 도와주실 수 있습니다.
-          required: false
-        - label: >-
-            제어 확인 없이 상태 표시(읽기 전용)만이라도 괜찮습니다.
           required: false

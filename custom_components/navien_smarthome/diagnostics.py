@@ -98,6 +98,10 @@ async def async_get_config_entry_diagnostics(
             "out_of_scope": len(out_of_scope),
         },
         "entities": [_entity_view(device) for device in (coordinator.data or {}).values()],
+        # 에어원은 실기기 미검증이다. 해석 결과를 그대로 담아 제보 근거로 쓴다.
+        "airone_entities": [
+            _airone_view(device) for device in coordinator.airone.values()
+        ],
         "supported_devices": supported,
         # 이 항목이 비어 있지 않으면 이슈에 그대로 붙여 주세요.
         "report_wanted_devices": report_wanted,
@@ -141,5 +145,51 @@ def _entity_view(device: Any) -> dict[str, Any]:
                 "enabled": device.zone_enabled(zone),
             }
             for zone in device.zones
+        },
+    }
+
+
+def _airone_view(device: Any) -> dict[str, Any]:
+    """에어원을 어떻게 해석했는지.
+
+    **실기기 미검증 구간이라 이 표가 제보의 핵심이다.** 서버가 알려준 조합과
+    통합이 만든 선택 항목을 나란히 담아, 어긋난 곳을 바로 볼 수 있게 한다.
+    """
+    return {
+        "service_code": device.service_code,
+        "model_code": device.model_code,
+        "model_name": device.model_name,
+        "odu_model_code": device.odu_model_code,
+        "is_v2_generation": device.is_v2_generation,
+        "available": device.available,
+        "zone_id": device.zone_id,
+        "running": device.running,
+        "running_name": device.running_name,
+        "mode": device.mode,
+        "option": device.option,
+        "mode_label": device.mode_label,
+        "air_volume": device.air_volume,
+        "wind_label": device.wind_label,
+        "target_humidity": device.target_humidity,
+        "error_code": device.error_code,
+        "filters": list(device.filters),
+        "air_sensor_kinds": list(device.sensor_kinds),
+        "modes_from_server": [
+            {
+                "mode": mode.mode,
+                "option": mode.option,
+                "air_volume": mode.air_volume,
+                "configurable": mode.configurable,
+                "humidity_min": mode.humidity_min,
+                "humidity_max": mode.humidity_max,
+            }
+            for mode in device.modes
+        ],
+        "selectable_modes": [mode.label for mode in device.selectable_modes],
+        "wind_choices": {
+            f"{mode.mode}:{mode.option}": list(
+                device.wind_choices(mode.mode, mode.option)
+            )
+            for mode in device.selectable_modes
         },
     }

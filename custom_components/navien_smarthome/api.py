@@ -16,12 +16,14 @@ import asyncio
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
 
 from .const import (
+    AIRONE_TOPIC_FMT,
     API_URL,
     CODE_NOT_AUTHORIZED,
     CODE_SUCCESS,
@@ -341,3 +343,81 @@ class NavienSmartApi:
             params={"homeSeq": home_seq, "userSeq": session.user_seq},
             raw_body=raw,
         )
+
+    # -- 에어원 ------------------------------------------------------------
+
+    async def async_airone_request(
+        self,
+        home_seq: int,
+        device_seq: int,
+        service_code: int,
+        model_code: str,
+        physical_device_id: str,
+        command: str,
+        client_id: str,
+        desired: dict[str, Any] | None = None,
+    ) -> None:
+        """에어원 명령을 중계한다.
+
+        매트와 **봉투가 다르다.** 매트는 최상위에 `topic` 하나를 두고
+        `payload.state.desired` 를 넣지만, 에어원은 요청·응답 토픽을 봉투 안에 넣고
+        `sessionId` 로 짝을 맞춘다 (`AironePubComm`).
+
+        `desired` 가 `None` 이면 상태 조회다 — `state` 를 아예 넣지 않는다.
+        """
+        session = self._require_session()
+        topic = AIRONE_TOPIC_FMT.format(
+            model_code=model_code, device_id=physical_device_id, command=command
+        )
+        payload: dict[str, Any] = {
+            "clientId": client_id,
+            # 앱은 밀리초 epoch 를 문자열로 넣는다. 서버가 응답을 짝지을 때 쓴다.
+            "sessionId": str(int(time.time() * 1000)),
+            "requestTopic": topic,
+            "responseTopic": f"{topic}/res",
+        }
+        if desired is not None:
+            payload["state"] = {"desired": desired}
+
+        body_obj = {"serviceCode": service_code, "payload": payload}
+        # 매트와 같은 이유로 토픽의 '/' 를 이스케이프한다.
+        # **본문 전체를 치환하지 않는다** — `desired` 는 호출자가 만든 값이라
+        # 나중에 '/' 가 들어오면 조용히 망가진다. 토픽 두 개만 정확히 바꾼다.
+        raw = json.dumps(body_obj, ensure_ascii=False)
+        for value in (payload["responseTopic"], topic):
+            quoted = json.dumps(value)
+            raw = raw.replace(quoted, quoted.replace("/", "\\/"))
+
+        _LOGGER.debug(
+            "에어원 전송 deviceSeq=%s command=%s desired=%s", device_seq, command, desired
+        )
+        await self._async_authed_request(
+            "POST",
+            f"/devices/{device_seq}/control",
+            params={"homeSeq": home_seq, "userSeq": session.user_seq},
+            raw_body=raw,
+        )
+
+    async def async_get_air_sensor(
+        self, home_seq: int, device_seq: int
+    ) -> list[dict[str, Any]]:
+        """공기질 값을 읽는다.
+
+        상태 메시지에는 센서 **종류**만 있고 값이 없다 — 값은 이 엔드포인트에만 있다.
+        """
+        session = self._require_session()
+        payload = await self._async_authed_request(
+            "GET",
+            f"/devices/{device_seq}/air-sensor",
+            params={"homeSeq": home_seq, "userSeq": session.user_seq},
+        )
+        data = payload.get("data")
+        if isinstance(data, dict):
+            airs = data.get("airs")
+            if isinstance(airs, list):
+                return airs
+            # 존이 여럿이면 목록으로 감싸 온다.
+            for value in data.values():
+                if isinstance(value, dict) and isinstance(value.get("airs"), list):
+                    return value["airs"]
+        return []
