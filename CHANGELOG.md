@@ -1,5 +1,26 @@
 # 변경 기록
 
+## v0.4.6 — 2026-07-30
+
+**최소 Home Assistant 버전을 2025.2 로 올렸다.** 공개 전 점검에서 잡았다.
+
+`hacs.json` 이 `2024.12.0` 을 요구한다고 선언했는데 코드는 그보다 새 API 를 쓴다.
+
+| API | 사용 | 도입 |
+| --- | --- | --- |
+| `AddConfigEntryEntitiesCallback` | 10곳 | HA 2025.2 |
+| `_get_reauth_entry`, `data_updates` | config flow | HA 2024.11 |
+| `model_id` (DeviceInfo) | entity | HA 2024.8 |
+
+HA 2024.12 사용자가 설치하면 `ImportError` 로 통합이 올라오지 않고, 사용자는 원인을
+알 수 없는 traceback 만 본다.
+
+**HACS 가 설치 전에 거르는 것이 옳은 실패 방식이다.** 「HA 2025.2 이상 필요」라고
+보여주고 설치를 막는다. README 설치 절에도 명시했다.
+
+`2025.2.0` 은 보수적으로 잡은 값이다. `AddConfigEntryEntitiesCallback` 의 정확한
+도입 버전을 확인하지 못했으므로, 낮게 잡아 깨지는 것보다 높게 잡아 막는 쪽을 택했다.
+
 ## v0.4.5 — 2026-07-30
 
 **「진단」이라는 말을 사용자에게 보이는 곳에서 전부 없앴다.**

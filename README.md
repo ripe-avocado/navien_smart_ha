@@ -117,6 +117,8 @@ HA 는 폰이 아니라서 붙을 방법이 없습니다. 앞으로도 지원 �
 
 ## 설치
 
+**Home Assistant 2025.2 이상이 필요합니다.**
+
 1. HACS → 사용자 지정 저장소에 이 저장소를 추가
 2. `Navien Smart` 설치 후 Home Assistant 재시작
 3. 설정 → 기기 및 서비스 → 통합 추가 → `Navien Smart`
