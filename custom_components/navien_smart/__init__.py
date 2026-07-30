@@ -14,7 +14,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import NavienSmartApi, NavienSmartAuthError, NavienSmartError
-from .const import CONF_HOME_SEQ, DOMAIN
+from .const import CONF_HOME_SEQ
 from .coordinator import NavienSmartCoordinator
 
 _LOGGER = logging.getLogger(__name__)

@@ -9,7 +9,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
-from .const import MODE_NAMES
 from .coordinator import NavienSmartCoordinator
 from .entity import NavienSmartEntity
 from .models import NavienDevice
@@ -37,7 +36,10 @@ class NavienSmartModeSensor(NavienSmartEntity, SensorEntity):
     def __init__(self, coordinator: NavienSmartCoordinator, device: NavienDevice) -> None:
         super().__init__(coordinator, device)
         self._attr_unique_id = f"{device.device_id}_mode"
-        self._attr_options = list(MODE_NAMES.values())
+        # `options` 를 쓰지 않는다. `device_class = ENUM` 이 함께 필요하고, ENUM 은
+        # 값이 반드시 목록 안에 있어야 한다. `mode_name` 은 모르는 모드에
+        # `알 수 없음(N)` 을 돌려주므로 목록을 닫을 수 없다 —
+        # 나비엔이 새 모드를 추가하면 그때부터 이 센서가 예외로 죽는다.
 
     @property
     def native_value(self) -> str | None:
