@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Final
 
@@ -37,6 +38,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# 진단에 남길 기록 개수. 순서를 보는 것이 목적이라 길 필요가 없다.
+_LOG_KEEP = 8
 
 
 def _dig(source: Any, *keys: str) -> Any:
@@ -281,6 +285,12 @@ class AironeDevice:
     # 들어갈 때 이 값을 실어 보내지 않으면 **기기가 자기 최소값으로 되돌린다** —
     # 실사용 제보로 확인했다(설정해두고 모드를 왕복하면 40% 로 초기화).
     last_humidity: int | None = field(repr=False, default=None)
+    # **무엇을 보냈고 무엇이 돌아왔는지** 짧게 남긴다. 값의 순서를 봐야 가릴 수
+    # 있는 문제가 있다 — 「모드를 바꿀 때 습도를 같이 보냈는데 기기가 되돌리는가」는
+    # 그 순간의 값만으로는 알 수 없다. 진단에 담아 제보 한 번으로 닫는다.
+    # 개인정보는 담지 않는다 — 모드 번호와 습도 값뿐이다.
+    command_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
+    humidity_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
 
     # -- 생성 --------------------------------------------------------------
 
@@ -385,6 +395,36 @@ class AironeDevice:
                 # 섞으면 자리가 어긋난다.
                 merged[key] = value
         self.reported = merged
+        self._note_humidity()
+
+    def _note_humidity(self) -> None:
+        """관측된 목표 습도가 바뀌면 한 줄 남긴다. 같은 값은 쌓지 않는다."""
+        value = self.target_humidity
+        entry = {"mode": self.mode, "option": self.option, "humidity": value}
+        if self.humidity_log and {
+            k: self.humidity_log[-1].get(k) for k in ("mode", "option", "humidity")
+        } == entry:
+            return
+        self.humidity_log.append({**entry, "at": round(time.monotonic(), 1)})
+        del self.humidity_log[:-_LOG_KEEP]
+
+    def note_command(self, command: str, desired: dict[str, Any] | None) -> None:
+        """보낸 명령을 한 줄 남긴다. 진단에서 순서를 보려면 이게 있어야 한다."""
+        controller = (desired or {}).get("roomController") or {}
+        extra = controller.get("additionalData")
+        self.command_log.append(
+            {
+                "command": command,
+                "mode": controller.get("mode"),
+                "option": controller.get("option"),
+                "airVolume": controller.get("airVolume"),
+                "running": controller.get("running"),
+                # 습도를 실어 보냈는지가 핵심이다.
+                "humidity_sent": (extra or {}).get("value") if isinstance(extra, dict) else None,
+                "at": round(time.monotonic(), 1),
+            }
+        )
+        del self.command_log[:-_LOG_KEEP]
 
     # -- 세대 --------------------------------------------------------------
 

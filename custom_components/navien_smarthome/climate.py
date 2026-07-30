@@ -52,7 +52,6 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
     """구역 하나의 난방 온도."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TURN_ON
@@ -72,21 +71,56 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
         label = device.zone_names.get(zone) or ZONE_NAMES.get(zone, zone)
         self._attr_name = label if device.is_double else "난방"
 
-        control = device.heat_control
-        assert control is not None  # setup 에서 걸러진다
-        self._attr_min_temp = float(control.range_min or 30)
-        self._attr_max_temp = float(control.range_max or 45)
-        self._attr_target_temperature_step = control.step
+        # 범위를 `__init__` 에 고정하지 않는다. 사계절 모델은 사용자가 앱에서
+        # WARM/COOL 을 바꾸면 **범위 자체가 갈린다** (난방 28~45 / 냉방 20~35).
+        # 고정해두면 냉방 설정값이 자기 최소값보다 낮아 카드가 깨진다.
+        assert device.heat_control is not None  # setup 에서 걸러진다
+
+    @property
+    def _control(self) -> Any:
+        """지금 적용되는 제어 서술자. 냉방이면 `coolControl`."""
+        device = self.device
+        return device.active_control if device is not None else None
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """냉방 중에는 냉방만, 그 밖에는 난방만 보여준다.
+
+        `season`(WARM/COOL) 은 **앱에서 고르는 모드**이고 우리가 바꾸는 방법을
+        확인하지 못했다. 그래서 HA 에서 난방↔냉방 전환을 제공하지 않는다 —
+        고를 수 있는 것처럼 보이면 눌렀을 때 아무 일도 안 일어난다.
+        """
+        device = self.device
+        cooling = device is not None and device.is_cooling
+        return [HVACMode.OFF, HVACMode.COOL if cooling else HVACMode.HEAT]
+
+    @property
+    def min_temp(self) -> float:
+        control = self._control
+        return float((control.range_min if control else None) or 20)
+
+    @property
+    def max_temp(self) -> float:
+        control = self._control
+        return float((control.range_max if control else None) or 45)
+
+    @property
+    def target_temperature_step(self) -> float:
+        control = self._control
+        return control.step if control else 0.5
 
     @property
     def available(self) -> bool:
-        """냉방 중이면 손을 뗀다.
+        """냉방 중에도 쓴다.
 
-        사계절 모델은 여름에 같은 `heater` 값을 `coolControl` 범위로 읽어야 한다.
-        그 값 체계가 확인되지 않았다.
+        v0.9.0 까지는 냉방이면 손을 뗐다 — 값 체계를 몰랐기 때문이다. 이제
+        `coolControl`(범위·간격·고온경고선)이 서버에서 오고, 설정값이 난방과 같은
+        `heater.<구역>.temperature.set` 으로 오는 것을 실기기 제보로 관측했다.
+
+        다만 `season` 이 **`SEASON_SUMMER`(2)** 일 때만 냉방으로 다룬다. 값이
+        없거나 모르는 값이면 난방으로 두므로, 잘못된 범위를 쓸 일이 없다.
         """
-        device = self.device
-        return super().available and device is not None and not device.is_cooling
+        return super().available
 
     @property
     def current_temperature(self) -> float | None:
@@ -107,17 +141,28 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
         device = self.device
         if device is None:
             return None
+        # **모르는 것을 「꺼짐」이라 하지 않는다.** `is_on` 은 `operationMode` 가
+        # 없을 때 `False` 를 돌려주는데, 그것을 그대로 쓰면 상태가 아직 안 온
+        # 기기를 껐다고 단정한다 — 사계절 제보에서 좌우 모두 「꺼짐」으로 보인
+        # 원인이다.
+        if device.operation_mode is None:
+            return None
         if not device.is_on:
             return HVACMode.OFF
         enabled = device.zone_enabled(self._zone)
-        return HVACMode.HEAT if enabled is not False else HVACMode.OFF
+        running = HVACMode.COOL if device.is_cooling else HVACMode.HEAT
+        return running if enabled is not False else HVACMode.OFF
 
     @property
     def hvac_action(self) -> HVACAction | None:
         mode = self.hvac_mode
         if mode is None:
             return None
-        return HVACAction.HEATING if mode is HVACMode.HEAT else HVACAction.OFF
+        if mode is HVACMode.HEAT:
+            return HVACAction.HEATING
+        if mode is HVACMode.COOL:
+            return HVACAction.COOLING
+        return HVACAction.OFF
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -134,13 +179,31 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
             attrs["season"] = device.season
         return attrs
 
+    @property
+    def _target_zones(self) -> tuple[str, ...]:
+        """이 조작이 적용될 구역.
+
+        **냉방에서는 좌우가 같은 온도로 동작한다** — 앱 도움말에 그렇게 적혀 있다.
+        한쪽만 보내면 반대쪽과 어긋나므로 두 구역에 같은 값을 보낸다.
+
+        엔티티는 좌/우 그대로 둔다. 냉방일 때 한쪽을 없애면 그 엔티티를 쓰던
+        자동화가 깨진다 — 어느 쪽을 만져도 양쪽이 함께 가는 편이 낫다.
+        """
+        device = self.device
+        if device is not None and device.is_cooling and device.is_double:
+            return device.zones
+        return (self._zone,)
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get("temperature")
         device = self.device
         if device is None or temperature is None:
             return
+        value = float(temperature)
+        zones = self._target_zones
         heater = device.build_heater_desired(
-            changes={self._zone: float(temperature)}, enables={self._zone: True}
+            changes={zone: value for zone in zones},
+            enables={zone: True for zone in zones},
         )
         await self.coordinator.async_send(
             device, {"operationMode": MODE_HEAT, "heater": heater}
@@ -150,12 +213,19 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
         device = self.device
         if device is None:
             return
-        if hvac_mode is HVACMode.HEAT:
-            heater = device.build_heater_desired(enables={self._zone: True})
+        zones = self._target_zones
+        if hvac_mode is not HVACMode.OFF:
+            # 난방이든 냉방이든 켜는 방법은 같다 — `operationMode` 1 + 구역 `enable`.
+            # 난방·냉방을 가르는 것은 `season` 이고 그건 앱에서 고른다.
+            heater = device.build_heater_desired(
+                enables={zone: True for zone in zones}
+            )
             await self.coordinator.async_send(
                 device, {"operationMode": MODE_HEAT, "heater": heater}
             )
             return
         # 구역만 끈다. 기기 전원은 별도 스위치가 담당한다.
-        heater = device.build_heater_desired(enables={self._zone: False})
+        heater = device.build_heater_desired(
+            enables={zone: False for zone in zones}
+        )
         await self.coordinator.async_send(device, {"heater": heater})

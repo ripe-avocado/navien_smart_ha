@@ -92,6 +92,11 @@ async def async_get_config_entry_diagnostics(
                 else None
             ),
             "known_control_units": list(KNOWN_UNITS),
+            # **「상태가 안 온다」의 원인을 로그 없이 가리는 값.**
+            # 받은 개수가 0 이면 안 오는 것이고, 버린 개수가 있으면 와도 못 쓰는
+            # 것이다. 후자면 `airone_last_unknown_shape_keys` 가 어느 모양인지
+            # 알려준다. 개수와 키 이름뿐이라 개인정보는 없다.
+            "mqtt_messages": coordinator.mqtt_stats,
         },
         "counts": {
             "total": len(coordinator.raw_devices),
@@ -126,6 +131,17 @@ def _entity_view(device: Any) -> dict[str, Any]:
         "is_four_season": device.is_four_season,
         "season": device.season,
         "is_cooling": device.is_cooling,
+        "has_unknown_season": device.has_unknown_season,
+        # 상태가 어느 묶음까지 왔는지. 사계절 모델이 부분 응답을 보내서
+        # `season`·`operationMode` 가 빠지는 일이 있었다 (v0.9.0).
+        "reported_keys": sorted(device.reported or {}),
+        "reported_heater_zones": sorted((device.reported or {}).get("heater") or {}),
+        # **냉방을 닫으려면 순서를 봐야 한다.** 「26.0 을 보냈는데 기기가 26.0 을
+        # 돌려주는가」, 「한쪽만 보냈는데 양쪽이 따라오는가」, 「`season` 이 실제로
+        # 무엇으로 바뀌는가」는 그 순간의 값만으로 알 수 없다.
+        # `at` 은 HA 가 켜진 뒤 흐른 초다. 온도·단계 값뿐이라 개인정보는 없다.
+        "command_log": list(device.command_log),
+        "state_log": list(device.state_log),
         "available": device.available,
         "operation_mode": device.operation_mode,
         "error_code": device.error_code,
@@ -179,6 +195,11 @@ def _airone_view(device: Any) -> dict[str, Any]:
             (device.reported or {}).get("roomController") or {}
         ),
         "last_humidity_remembered": device.last_humidity,
+        # **순서를 보기 위한 기록.** 「모드를 바꿀 때 습도를 실어 보냈는데 기기가
+        # 되돌리는가」는 그 순간의 값만으로 가릴 수 없다.
+        # `at` 은 HA 가 켜진 뒤 흐른 초다. 개인정보는 없다.
+        "command_log": list(device.command_log),
+        "humidity_log": list(device.humidity_log),
         "available": device.available,
         "zone_id": device.zone_id,
         "running": device.running,

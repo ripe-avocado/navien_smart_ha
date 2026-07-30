@@ -27,6 +27,7 @@ from .const import (
     AIRONE_CMD_CHANGE_MODE,
     AIRONE_CMD_POWER,
     AIRONE_CMD_STATUS,
+    AIRONE_HUMIDITY_RESTORE_DELAY_SECONDS,
     AIRONE_READBACK_DELAY_SECONDS,
     AIRONE_SILENCE_CHECK_SECONDS,
     AIRONE_TOPIC_FMT,
@@ -93,6 +94,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 에어원은 매트와 상태 체계가 달라 같은 dict 에 섞지 않는다. 검증이 끝난
         # 매트 경로를 건드리지 않는 것이 우선이다.
         self.airone: dict[str, AironeDevice] = {}
+        # 「상태가 안 온다」와 「와도 못 붙인다」를 진단만으로 가리기 위한 집계.
+        # 개인정보는 없다 — 개수와 키 이름뿐이다.
+        self.drop_counts: dict[str, int] = {"mate_no_device": 0, "airone_no_device": 0}
         self._mqtt: NavienSmartMqtt | None = None
         self._skipped_logged: set[str] = set()
 
@@ -153,6 +157,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
 
             if device.is_four_season:
                 self._log_four_season(device)
+            if device.has_unknown_season:
+                self._log_unknown_season(device)
 
             devices[device.device_id] = device
 
@@ -318,14 +324,35 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         if key in self._skipped_logged:
             return
         self._skipped_logged.add(key)
-        _LOGGER.warning(
-            "사계절 모델을 찾았습니다 (%s, modelCode=%s). 난방은 지원하지만 "
-            "냉방은 값 체계가 확인되지 않아 냉방 중에는 제어를 비활성으로 둡니다. "
-            "냉방을 열려면 제보가 필요합니다 — 매트를 냉방으로 켜둔 뒤 설정 → "
-            "기기 및 서비스 → 나비엔 스마트 → ⋮ 메뉴의 '통계정보 다운로드' 를 "
-            "이슈에 붙여 주세요. 필요한 값이 그 안에 들어 있습니다.",
+        cool = device.cool_control
+        _LOGGER.info(
+            "사계절 모델을 찾았습니다 (%s, modelCode=%s). 냉방(COOL) 범위는 "
+            "%s~%s 입니다. 앱에서 COOL 로 바꾸시면 HA 도 그 범위로 따라갑니다 — "
+            "**냉방에서는 좌우가 같은 온도로 동작하므로** 어느 쪽을 조작해도 "
+            "양쪽에 같은 값이 갑니다.",
             device.nickname,
             device.model_code,
+            cool.range_min if cool else "?",
+            cool.range_max if cool else "?",
+        )
+
+    def _log_unknown_season(self, device: NavienDevice) -> None:
+        """`season` 이 우리가 아는 값이 아닐 때 한 번만 알린다.
+
+        앱 상수는 WARM(0) / COOL(2) 둘뿐인데 규격표에는 `Cool+` 라는 이름도 있다.
+        **다른 값이 오면 난방으로 두고 알린다** — 냉방 범위를 잘못 적용하는 것보다
+        안전하다.
+        """
+        key = f"{device.device_seq}:season:{device.season}"
+        if key in self._skipped_logged:
+            return
+        self._skipped_logged.add(key)
+        _LOGGER.warning(
+            "%s 의 season 값 %s 를 해석하지 못해 난방으로 다룹니다 "
+            "(아는 값: 0 난방 / 2 냉방). 냉방 중이신데 이 로그가 보이면 "
+            "이 줄과 통계정보를 이슈에 붙여 주세요 — 바로 넓힐 수 있습니다.",
+            device.nickname,
+            device.season,
         )
 
     def _log_skip(self, raw: dict[str, Any], reason: str) -> None:
@@ -411,6 +438,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
     def mqtt_connected(self) -> bool:
         return self._mqtt is not None and self._mqtt.connected
 
+    @property
+    def mqtt_stats(self) -> dict[str, Any]:
+        """받은 개수·버린 개수. 진단에 담아 로그 없이도 가릴 수 있게 한다."""
+        stats: dict[str, Any] = dict(self._mqtt.stats) if self._mqtt else {}
+        stats.update(self.drop_counts)
+        return stats
+
     async def _async_aws_credentials(self) -> AwsCredentials | None:
         """접속·재접속 시마다 새 자격증명을 받는다.
 
@@ -430,9 +464,11 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         device = devices.get(device_id)
         if device is None:
             # 새로 등록된 기기일 수 있다. 다음 폴링에서 잡힌다.
+            self.drop_counts["mate_no_device"] += 1
             _LOGGER.debug("모르는 기기의 보고 무시: %s", device_id)
             return
-        device.reported = reported
+        # **덮어쓰지 않는다.** 사계절 모델이 부분 응답을 보낸다 (`apply_reported`).
+        device.apply_reported(reported)
         self.async_set_updated_data(devices)
 
     @callback
@@ -449,6 +485,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 None,
             )
         if device is None:
+            self.drop_counts["airone_no_device"] += 1
             _LOGGER.debug("모르는 에어원의 보고 무시: %s", device_id)
             return
         # **덮어쓰지 않는다.** 명령 응답은 부분 페이로드로 온다 (`apply_reported` 주석).
@@ -464,6 +501,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         desired: dict[str, Any] | None,
     ) -> None:
         client_id = self._mqtt.client_id if self._mqtt is not None else ""
+        # 무엇을 보냈는지 남긴다. 진단에서 순서를 봐야 가릴 수 있는 문제가 있다.
+        device.note_command(command, desired)
         await self.api.async_airone_request(
             self.home_seq,
             device_seq=device.device_seq,
@@ -492,12 +531,81 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         air_volume: int | None = None,
         humidity: int | None = None,
     ) -> None:
+        # **모드를 바꾸기 전에** 지금 알고 있는 목표 습도를 붙잡아 둔다.
+        # 기기가 응답을 보내오면 그 값으로 기억이 덮이므로, 나중에 읽으면 늦다.
+        restore = None if humidity is not None else self._humidity_to_restore(
+            device, mode, option
+        )
+
         desired = device.build_mode_desired(mode, option, air_volume, humidity)
         try:
             await self._async_airone_request(device, AIRONE_CMD_CHANGE_MODE, desired)
         except NavienSmartAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         self._schedule_airone_readback(device)
+        if restore is not None:
+            self._schedule_airone_humidity_restore(device, mode, option, restore)
+
+    @staticmethod
+    def _humidity_to_restore(
+        device: AironeDevice, mode: int, option: int
+    ) -> int | None:
+        """모드를 바꾼 뒤 되돌려 놓을 목표 습도.
+
+        들어갈 모드가 습도를 쓰지 않으면 없다.
+        """
+        bounds = device.humidity_bounds(mode, option)
+        if bounds is None:
+            return None
+        for candidate in (device.target_humidity, device.last_humidity):
+            if candidate is not None and bounds[0] <= candidate <= bounds[1]:
+                return candidate
+        return None
+
+    @callback
+    def _schedule_airone_humidity_restore(
+        self, device: AironeDevice, mode: int, option: int, humidity: int
+    ) -> None:
+        """모드를 바꾼 뒤 목표 습도를 한 번 더 보낸다.
+
+        **모드 변경 메시지에 습도를 같이 실어 보내는 것으로는 안 된다.** 제습으로
+        돌아오면 기기가 자기 기본값(40%)으로 되돌린다는 제보를 v0.8.3 에서 그 방식으로
+        고치려 했는데 증상이 그대로였다.
+
+        기기가 그 모드에 **들어간 뒤에** 받아야 하는 것으로 보인다. 그래서 상태를
+        다시 읽은 다음, **여전히 값이 다를 때만** 한 번 더 보낸다.
+
+        - 기기가 처음 것을 이미 받아들였으면 값이 같아 보내지 않는다
+        - 사용자가 일부러 그 값으로 두었으면 역시 값이 같아 건드리지 않는다
+        - 되돌려졌을 때만 한 번 고쳐 보낸다. 반복 전송은 하지 않는다
+        """
+        device_id = device.device_id
+
+        async def _restore(_now: Any) -> None:
+            target = self.airone.get(device_id)
+            if target is None or target.mode != mode:
+                # 그 사이 다른 모드로 갔다. 남의 조작을 덮지 않는다.
+                return
+            if target.target_humidity == humidity:
+                return
+            _LOGGER.debug(
+                "%s 목표 습도가 %s 로 되돌아가 %s 로 다시 보냅니다",
+                target.nickname,
+                target.target_humidity,
+                humidity,
+            )
+            try:
+                await self._async_airone_request(
+                    target,
+                    AIRONE_CMD_CHANGE_MODE,
+                    target.build_mode_desired(mode, option, humidity=humidity),
+                )
+            except NavienSmartError as err:
+                _LOGGER.debug("%s 목표 습도 재전송 실패: %s", target.nickname, err)
+
+        async_call_later(
+            self.hass, AIRONE_HUMIDITY_RESTORE_DELAY_SECONDS, _restore
+        )
 
     @callback
     def _schedule_airone_silence_check(self, device: AironeDevice) -> None:
@@ -566,6 +674,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         기기가 `reported` 를 올려줄 때까지 기다린다. 명령이 shadow 에 들어간 시점의
         이벤트(`reported` 없는 `/accepted`)를 상태로 쓰면 HA 가 기기보다 앞서 나간다.
         """
+        # 무엇을 보냈는지 남긴다. 냉방은 「보낸 값이 그대로 돌아오는가」를 봐야
+        # 닫히는 구간이라 이 기록이 근거가 된다.
+        device.note_command(desired)
         try:
             await self.api.async_control(self.home_seq, device.raw, desired)
         except NavienSmartAuthError as err:

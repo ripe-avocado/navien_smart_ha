@@ -91,8 +91,12 @@ class NavienSmartLevelSelect(NavienSmartEntity, SelectEntity):
     def available(self) -> bool:
         """냉방 중이면 손을 뗀다.
 
-        사계절 모델은 여름에 같은 `heater` 값을 `coolControl` 범위로 읽어야 하고,
-        그 값 체계가 확인되지 않았다.
+        **단계형은 그대로 막아둔다.** 냉방 값 체계가 확인된 것은 온도형(`0.5C`)
+        뿐이다 — 실기기 제보가 EMF520(온도형)이었다. 단계형 사계절 모델이
+        냉방에서 어떤 단계 범위를 쓰는지는 아직 모른다.
+
+        목록(`options`)이 만들어질 때 한 번 정해지는 구조라, 범위가 갈리는 것을
+        런타임에 반영할 수 없다. 제보가 오면 그때 연다.
         """
         device = self.device
         return super().available and device is not None and not device.is_cooling

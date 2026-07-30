@@ -131,7 +131,7 @@ def extract_reported(payload: bytes, topic: str) -> tuple[str, dict[str, Any]] |
 
 
 def extract_airone_reported(
-    payload: bytes, topic: str
+    payload: bytes, topic: str, stats: dict[str, Any] | None = None
 ) -> tuple[str, dict[str, Any]] | None:
     """에어원 상태 메시지에서 `reported` 를 꺼낸다.
 
@@ -143,14 +143,17 @@ def extract_airone_reported(
         event = json.loads(payload)
     except (json.JSONDecodeError, UnicodeDecodeError):
         _LOGGER.debug("JSON 이 아닌 에어원 메시지 무시: topic=%s", topic)
+        _bump(stats, "dropped_not_json")
         return None
     if not isinstance(event, dict):
+        _bump(stats, "dropped_not_json")
         return None
 
     inner = event.get("payload")
     reported = inner.get("reported") if isinstance(inner, dict) else None
     if not isinstance(reported, dict):
         # 명령을 접수했다는 응답일 수 있다. 상태가 아니면 쓰지 않는다.
+        _bump(stats, "dropped_no_reported")
         return None
     # `idu`(실내기)도 받는다. 올인원 룸콘은 룸콘과 실내기가 한 덩어리라 상태를
     # 이쪽으로 올릴 가능성이 있다 — `did` 에 이 필드가 실재한다.
@@ -168,6 +171,9 @@ def extract_airone_reported(
             topic.rsplit("/", 1)[-1],
             sorted(reported),
         )
+        _bump(stats, "dropped_unknown_shape")
+        if stats is not None:
+            stats["last_unknown_shape_keys"] = sorted(reported)
         return None
 
     # `{homeSeq}/airone/{deviceId}` 의 마지막 조각이 기기목록의 deviceId 다.
@@ -177,8 +183,21 @@ def extract_airone_reported(
         if isinstance(controller, dict):
             device_id = str(controller.get("deviceId") or "")
     if not device_id:
+        _bump(stats, "dropped_no_device_id")
         return None
+    _bump(stats, "accepted")
     return device_id, reported
+
+
+def _bump(stats: dict[str, Any] | None, key: str) -> None:
+    """집계만 올린다. 값은 담지 않는다.
+
+    「안 온다」와 「와서 버린다」를 **로그 없이 통계정보만으로** 가리기 위한 것이다.
+    로그를 켜서 붙여 달라고 하면 회신율이 크게 떨어진다.
+    """
+    if stats is None:
+        return
+    stats[key] = int(stats.get(key) or 0) + 1
 
 
 class NavienSmartMqtt:
@@ -196,6 +215,8 @@ class NavienSmartMqtt:
         on_airone_reported: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._hass = hass
+        # 수신·폐기 집계. 개인정보는 없다 — 개수와 키 이름뿐이다.
+        self.stats: dict[str, Any] = {}
         self._home_seq = home_seq
         self._user_seq = user_seq
         self._prefixes = topic_prefixes or {"mate"}
@@ -353,14 +374,17 @@ class NavienSmartMqtt:
         # 구독 토픽으로 갈린다 — 앱도 같은 방식이다. 봉투가 완전히 달라서
         # 한 파서로 둘 다 다루면 한쪽이 조용히 버려진다.
         if f"/{AIRONE_PREFIX}/" in message.topic:
+            _bump(self.stats, "airone_received")
             self._handle_airone_message(message)
             return
 
+        _bump(self.stats, "mate_received")
         result = extract_reported(message.payload, message.topic)
         if result is None:
             # 버린 이벤트도 남긴다. 이게 없어서 "상태가 안 온다" 와 "와도 버린다" 를
             # 구별하지 못해 디버깅이 길어졌다.
             _LOGGER.debug("MQTT 이벤트 무시 (reported 없음): %s", message.topic)
+            _bump(self.stats, "mate_dropped_no_reported")
             return
         device_id, reported = result
         _LOGGER.debug(
@@ -374,8 +398,15 @@ class NavienSmartMqtt:
     def _handle_airone_message(self, message: Any) -> None:
         if self._on_airone_reported is None:
             _LOGGER.debug("에어원 메시지 무시 (처리기 없음): %s", message.topic)
+            _bump(self.stats, "airone_dropped_no_handler")
             return
-        result = extract_airone_reported(message.payload, message.topic)
+        airone_stats: dict[str, Any] = {}
+        result = extract_airone_reported(message.payload, message.topic, airone_stats)
+        for key, value in airone_stats.items():
+            if key == "last_unknown_shape_keys":
+                self.stats["airone_last_unknown_shape_keys"] = value
+            else:
+                _bump(self.stats, f"airone_{key}")
         if result is None:
             _LOGGER.debug("에어원 이벤트 무시 (reported 없음): %s", message.topic)
             return

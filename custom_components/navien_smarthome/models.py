@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +35,22 @@ def _dig(source: Any, *keys: str) -> Any:
             return None
         source = source.get(key)
     return source
+
+
+# 진단에 남길 기록 개수. 순서를 보는 것이 목적이라 길 필요가 없다.
+_LOG_KEEP = 8
+
+
+def _merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """딕셔너리를 깊이까지 겹쳐 쓴다. 목록과 그 밖의 값은 통째로 바꾼다."""
+    merged = dict(base)
+    for key, value in incoming.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge(current, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _version_text(current: Any) -> str | None:
@@ -139,6 +156,11 @@ class NavienDevice:
     wifi_version: str | None
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
     reported: dict[str, Any] = field(repr=False, default_factory=dict)
+    # **무엇을 보냈고 무엇이 돌아왔는지** 짧게 남긴다. 냉방은 값 체계를 실기기로
+    # 확인하지 못한 구간이라, 「보낸 값이 그대로 돌아오는가」를 봐야 닫힌다.
+    # 개인정보는 담지 않는다 — 모드 번호와 온도·단계 값뿐이다.
+    command_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
+    state_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
 
     # -- 생성 --------------------------------------------------------------
 
@@ -193,6 +215,79 @@ class NavienDevice:
             wifi_version=_version_text(_dig(attrs, "wifi", "version", "current")),
             raw=raw,
         )
+
+    # -- 상태 반영 ----------------------------------------------------------
+
+    def apply_reported(self, incoming: dict[str, Any]) -> None:
+        """들어온 상태를 **덮어쓰지 않고 겹쳐 쓴다.**
+
+        내 EME-500 두 대는 shadow 가 항상 전체를 준다 — `heater` 에 `single`·`left`·
+        `right` 가 늘 함께 온다. 그것을 보고 **매트 전체가 그렇다고 단정했다.**
+
+        틀렸다. 사계절(EMF520) 제보에서 `heater.right` 하나만 담긴 응답이 왔고,
+        통째로 갈아끼우는 바람에 `operationMode` · `season` · `heater.left` 가
+        사라졌다. 그래서 전원이 「알 수 없음」이 되고 좌우가 번갈아 비었다.
+
+        딕셔너리는 **깊이 상관없이** 겹쳐 쓴다 — `heater.right.temperature` 만 온
+        경우에도 `level` 이나 `enable` 을 잃지 않아야 한다.
+        목록은 통째로 바꾼다(부분 목록을 항목별로 섞으면 자리가 어긋난다).
+
+        오래된 값이 남을 수 있다는 것은 감수한다. **전부 「알 수 없음」이 되는 것보다
+        낫다.**
+        """
+        self.reported = _merge(self.reported or {}, incoming)
+        self._note_state()
+
+    def _note_state(self) -> None:
+        """상태가 바뀌면 한 줄 남긴다. 같은 값은 쌓지 않는다.
+
+        사계절 냉방을 닫으려면 **`season` 값이 실제로 무엇인지**와 **보낸 값이
+        그대로 돌아오는지**를 봐야 한다. 그 순간의 값만으로는 알 수 없다.
+        """
+        entry: dict[str, Any] = {
+            "operationMode": self.operation_mode,
+            "season": self.season,
+            "cooling": self.is_cooling,
+            "zones": {
+                zone: {
+                    "set": self._zone_setting_raw(zone),
+                    "current": self._zone_current_raw(zone),
+                    "enable": self._zone_enabled_raw(zone),
+                }
+                for zone in self.zones
+            },
+        }
+        if self.state_log and {
+            k: v for k, v in self.state_log[-1].items() if k != "at"
+        } == entry:
+            return
+        self.state_log.append({**entry, "at": round(time.monotonic(), 1)})
+        del self.state_log[:-_LOG_KEEP]
+
+    def note_command(self, desired: dict[str, Any]) -> None:
+        """보낸 명령을 한 줄 남긴다."""
+        heater = desired.get("heater") or {}
+        self.command_log.append(
+            {
+                "operationMode": desired.get("operationMode"),
+                "cooling_at_send": self.is_cooling,
+                "season_at_send": self.season,
+                "zones": {
+                    zone: {
+                        "enable": value.get("enable"),
+                        "set": (
+                            (value.get("temperature") or value.get("level") or {}).get("set")
+                            if isinstance(value, dict)
+                            else None
+                        ),
+                    }
+                    for zone, value in heater.items()
+                    if isinstance(value, dict)
+                },
+                "at": round(time.monotonic(), 1),
+            }
+        )
+        del self.command_log[:-_LOG_KEEP]
 
     # -- 상태 --------------------------------------------------------------
 
@@ -251,12 +346,26 @@ class NavienDevice:
 
     @property
     def is_cooling(self) -> bool:
-        """냉방 모드인가.
+        """냉방(COOL) 모드인가.
 
-        냉방이면 `heater` 의 설정값을 `coolControl` 범위로 읽어야 한다. 그 값
-        체계가 확인되지 않았으므로 이 구간에서는 난방 제어를 내보내지 않는다.
+        `season` 은 자동 상태가 아니라 **사용자가 앱에서 고르는 모드**다. 앱은
+        WARM / COOL 로 부르고 예약 목록도 모드별로 따로 관리한다.
+
+        **`SEASON_SUMMER`(2) 일 때만 냉방으로 본다.** 값을 실기기에서 관측한 적이
+        없으므로, 모르는 값이 오면 난방으로 두고 로그를 남긴다 — 냉방 범위를
+        잘못 적용하는 것보다 안전하다.
         """
         return self.season == SEASON_SUMMER
+
+    @property
+    def has_unknown_season(self) -> bool:
+        """사계절 모델인데 `season` 값을 해석할 수 없는 상태인가."""
+        season = self.season
+        return (
+            self.is_four_season
+            and season is not None
+            and season not in SEASON_NAMES
+        )
 
     @property
     def active_control(self) -> HeatControl | None:
@@ -278,11 +387,31 @@ class NavienDevice:
         state = heater.get(zone)
         return state if isinstance(state, dict) else None
 
+    def _mirror_zone(self, zone: str) -> str | None:
+        """냉방에서 값을 가져올 반대쪽 구역.
+
+        **냉방은 좌우가 같은 온도로 동작한다** — 앱 도움말에 그렇게 적혀 있다
+        (「COOL 모드 … 매트의 좌우가 같은 온도로 동작합니다」). 그래서 서버가
+        한쪽만 채워 보내는 일이 있고, 그때 반대쪽 엔티티가 빈 채로 남는다.
+
+        추측이 아니라 **같은 값이라고 문서화된 것**을 옮겨 쓰는 것이다.
+        난방에서는 좌우가 독립이므로 절대 하지 않는다.
+        """
+        if not self.is_cooling or not self.is_double:
+            return None
+        return ZONE_RIGHT if zone == ZONE_LEFT else ZONE_LEFT
+
     def zone_setting(self, zone: str) -> float | None:
         """설정값. 단계형이면 `level.set`, 온도형이면 `temperature.set`.
 
         단계형은 `temperature.current` 를 주지 않는다 — 설정값이 곧 표시값이다.
         """
+        value = self._zone_setting_raw(zone)
+        if value is None and (mirror := self._mirror_zone(zone)) is not None:
+            value = self._zone_setting_raw(mirror)
+        return value
+
+    def _zone_setting_raw(self, zone: str) -> float | None:
         state = self.zone_state(zone)
         if state is None:
             return None
@@ -296,6 +425,12 @@ class NavienDevice:
 
     def zone_current(self, zone: str) -> float | None:
         """현재값. 온도형만 온다. 단계형은 `None`."""
+        value = self._zone_current_raw(zone)
+        if value is None and (mirror := self._mirror_zone(zone)) is not None:
+            value = self._zone_current_raw(mirror)
+        return value
+
+    def _zone_current_raw(self, zone: str) -> float | None:
         state = self.zone_state(zone)
         if state is None:
             return None
@@ -305,6 +440,12 @@ class NavienDevice:
         return None
 
     def zone_enabled(self, zone: str) -> bool | None:
+        value = self._zone_enabled_raw(zone)
+        if value is None and (mirror := self._mirror_zone(zone)) is not None:
+            value = self._zone_enabled_raw(mirror)
+        return value
+
+    def _zone_enabled_raw(self, zone: str) -> bool | None:
         state = self.zone_state(zone)
         if state is None:
             return None
@@ -349,12 +490,13 @@ class NavienDevice:
         """
         changes = changes or {}
         enables = enables or {}
-        if self.is_cooling:
-            # 냉방 값 체계가 확인되지 않았다. 추측해서 보내지 않는다.
-            raise ValueError(
-                "냉방 모드에서는 제어를 보내지 않습니다 (냉방 값 체계 미확인)."
-            )
-        control = self.heat_control
+        # 냉방이면 `coolControl` 을 쓴다. 설정값 경로는 난방과 같은
+        # `heater.<구역>.temperature.set` 이다 — 실기기 제보에서 냉방 설정값
+        # 24.5(냉방 범위 20~35) 가 그 경로로 오는 것을 관측했다.
+        #
+        # 단계형(`1.0L`) 사계절 모델의 냉방은 아직 모른다. `select` 가 냉방에서
+        # 손을 떼므로 여기까지 오지 않는다.
+        control = self.active_control
         if control is None or not control.is_known:
             raise ValueError(f"제어 축을 모르는 기기입니다 (unit={control.unit if control else None})")
 

@@ -1,14 +1,17 @@
 name: 사계절 매트 냉방 제보
-description: 사계절 매트의 냉방을 열려면 이 정보가 필요합니다.
+description: 냉방 제어가 실제로 먹히는지 확인하려면 이 정보가 필요합니다.
 labels: ["사계절", "제보"]
 body:
   - type: markdown
     attributes:
       value: |
-        사계절 매트는 **난방은 지금도 됩니다.** 냉방으로 두면 제어가 일시적으로
-        비활성됩니다 — 냉방 쪽 값 체계를 실기기로 확인하지 못했기 때문입니다.
+        **`v0.9.0` 부터 냉방 온도 조절이 됩니다.** 다만 실기기로 확인한 것은
+        온도로 표시되는 모델뿐입니다. 단계(1~8)로 표시되는 모델의 냉방은
+        아직 막아 두었습니다.
 
-        아래 정보가 오면 냉방을 열 수 있습니다. 통계정보 파일 하나로 대부분 해결됩니다.
+        **난방↔냉방 전환은 아직 안 됩니다.** 기기나 앱에서 바꿔 주세요.
+
+        통계정보 파일 하나면 대부분 확인됩니다. 따로 찾아보실 것은 없습니다.
 
   - type: input
     id: model
@@ -18,17 +21,31 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: result
+    attributes:
+      label: 냉방에서 HA 로 온도를 바꿔 보셨나요
+      options:
+        - 바꿨고, 기기가 그대로 따라왔습니다
+        - 바꿨는데 기기가 안 따라옵니다
+        - 바꿨는데 잠깐 바뀌었다가 원래 값으로 되돌아갑니다
+        - HA 에서 온도를 바꿀 수 없습니다 (슬라이더가 없거나 비활성)
+        - 아직 안 해봤습니다
+    validations:
+      required: true
+
   - type: textarea
     id: diagnostics
     attributes:
-      label: 통계정보 파일 — 냉방으로 켜둔 상태에서 받아 주세요
+      label: 통계정보 파일 — 냉방에서 온도를 바꿔 본 뒤에 받아 주세요
       description: |
-        **매트를 냉방으로 켜둔 뒤에** 받아 주세요. 난방 상태에서 받으면 냉방 관련
-        값이 비어 있어서 쓸모가 없습니다.
+        **냉방으로 켜고, HA 에서 온도를 한 번 바꾼 다음** 받아 주세요.
+        보낸 값과 기기가 돌려준 값이 파일에 함께 기록되어, 먹혔는지 아닌지
+        저희가 눈으로 확인할 수 있습니다.
 
         설정 → 기기 및 서비스 → **나비엔 스마트** → ⋮ → `통계정보 다운로드`
 
-        파일 안에 필요한 값이 다 들어 있습니다. 따로 찾아보실 것은 없습니다.
+        기기ID · IP · MAC · SSID · 아이디 · 별칭은 자동으로 가려집니다.
       render: json
     validations:
       required: true
@@ -53,6 +70,21 @@ body:
         - 잘 모르겠습니다
     validations:
       required: true
+
+  - type: dropdown
+    id: mirror
+    attributes:
+      label: 좌우 분리 모델이라면 — 한쪽 온도를 바꾸면 반대쪽도 같이 바뀌나요
+      description: |
+        냉방에서는 좌우가 같은 온도가 되는 것이 정상 동작으로 보입니다.
+        실제로 그런지 확인하고 싶습니다.
+      options:
+        - 같이 바뀝니다
+        - 각각 따로 바뀝니다
+        - 좌우 분리 모델이 아닙니다
+        - 잘 모르겠습니다
+    validations:
+      required: false
 
   - type: textarea
     id: cool_ui
