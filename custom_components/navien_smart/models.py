@@ -36,6 +36,19 @@ def _dig(source: Any, *keys: str) -> Any:
     return source
 
 
+def _version_text(current: Any) -> str | None:
+    """`{major, minor, build}` 를 `14.0.0` 으로 옮긴다.
+
+    매트는 MCU 와 Wi-Fi 모듈이 각자 펌웨어를 가진다 (실측 MCU 14.0.0 / Wi-Fi 5.1.100).
+    """
+    if not isinstance(current, dict):
+        return None
+    parts = [current.get(key) for key in ("major", "minor", "build")]
+    if any(part is None for part in parts):
+        return None
+    return ".".join(str(int(part)) for part in parts)
+
+
 @dataclass(slots=True)
 class HeatControl:
     """`functions.heatControl` 또는 `functions.coolControl`.
@@ -122,6 +135,8 @@ class NavienDevice:
     sleep_durations: list[int]
     schedule_kinds: tuple[str, ...]
     connected_registry: bool
+    mcu_version: str | None
+    wifi_version: str | None
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
     reported: dict[str, Any] = field(repr=False, default_factory=dict)
 
@@ -174,6 +189,8 @@ class NavienDevice:
                 kind for kind in ("oneTime", "weekly", "personal") if schedule.get(kind)
             ),
             connected_registry=bool(raw.get("connected")),
+            mcu_version=_version_text(_dig(mcu, "version", "current")),
+            wifi_version=_version_text(_dig(attrs, "wifi", "version", "current")),
             raw=raw,
         )
 
