@@ -59,6 +59,54 @@ def _dig(source: Any, *keys: str) -> Any:
     return current
 
 
+def _strip_capability_fields(incoming: dict[str, Any]) -> dict[str, Any]:
+    """상태 응답에 섞여 오는 **능력 서술자**를 걷어낸다.
+
+    `status` 요청에 기기가 **DID 문서 전체**로 답하는 경우가 있다. 그 안의
+    `roomController.mode` 는 지금 운전 모드(정수)가 아니라 **지원 조합 배열**이다.
+    그대로 겹쳐 쓰면 방금 받은 모드 번호를 배열이 덮어써서 모드가 사라진다.
+
+    제보(#12, `NRT-530Z3`)에서 그대로 보였다.
+
+        mode: 4     ← change-mode 응답
+        mode: null  ← 9초 뒤 status 응답이 배열로 덮었다
+
+    그 뒤로는 모드가 계속 비었고, 풍량 select 는 「고를 것이 없다」로 판단해
+    **`unavailable`** 이 됐다. 「기기가 죽은 것처럼 보인다」의 정체다.
+
+    능력 목록은 기기목록(REST)에서 이미 읽어 `modes` 로 들고 있다. 여기서는
+    버린다 — 상태만 남긴다.
+
+    **`additionalData` 도 같은 함정이다.** 상태로 올 때는 `value` 가 실린 목록인데
+    (`{"type": 3, "value": 40}`), DID 로 올 때는 범위표다
+    (`{"type": 1, "min": 0, "max": 4}`). 범위표가 덮으면 읽어둔 목표 습도가
+    사라진다. **값이 하나도 없는 목록이면 상태가 아니므로 버린다.**
+    """
+    controller = incoming.get("roomController")
+    if not isinstance(controller, dict):
+        return incoming
+
+    inner = dict(controller)
+    changed = False
+
+    if isinstance(inner.get("mode"), list):
+        del inner["mode"]
+        changed = True
+
+    extra = inner.get("additionalData")
+    if isinstance(extra, list) and not any(
+        isinstance(item, dict) and "value" in item for item in extra
+    ):
+        del inner["additionalData"]
+        changed = True
+
+    if not changed:
+        return incoming
+    trimmed = dict(incoming)
+    trimmed["roomController"] = inner
+    return trimmed
+
+
 def _as_int(value: Any) -> int | None:
     if isinstance(value, bool) or value is None:
         return None
@@ -491,6 +539,7 @@ class AironeDevice:
         오래된 값이 남을 수 있다는 것은 감수한다. 기기가 어떤 항목을 더 이상 보내지
         않으면 마지막 값이 남는다. **전부 「알 수 없음」이 되는 것보다 낫다.**
         """
+        incoming = _strip_capability_fields(incoming)
         merged: dict[str, Any] = dict(self.reported or {})
         for key, value in incoming.items():
             current = merged.get(key)
