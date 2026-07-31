@@ -334,8 +334,17 @@ class AironeFanSelect(AironeEntity, SelectEntity):
 
     @property
     def available(self) -> bool:
-        """지금 모드에서 고를 것이 없으면 손을 뗀다."""
-        return super().available and len(self._choices) > 1
+        """고를 것이 **하나도 없을 때만** 손을 뗀다.
+
+        **하나뿐인 것과 없는 것은 다르다.** 앱은 숙면에서 풍량을 「자동」으로
+        보여주면서 못 누르게만 한다 — 숨기지 않는다. 요리(강풍 하나)와
+        자동운전(자동 하나)도 같다.
+
+        `> 1` 로 두었더니 그 모드로 바꾸는 순간 엔티티가 통째로 빠졌다.
+        사용자에게는 「지금 풍량이 뭔지」가 사라지는 것이라 없느니만 못하다.
+        하나뿐이면 그 값을 보여준다 — 골라도 같은 값이라 바뀌는 것이 없다.
+        """
+        return super().available and bool(self._choices)
 
     @property
     def current_option(self) -> str | None:
