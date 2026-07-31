@@ -33,6 +33,12 @@ USER_AGENT: Final = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 APP_NAVIENSMART_IOS"
 )
 
+# **요청 하나가 폴링 주기를 통째로 먹지 않게 한다.**
+#
+# `aiohttp` 기본값은 5분이라 에어원 폴링 주기와 똑같다. 서버가 연결만 받아두고
+# 응답하지 않으면 그 한 번이 주기 전체를 잡아먹는다.
+REQUEST_TIMEOUT_SECONDS: Final = 30
+
 # --- 서버 응답 코드 --------------------------------------------------------
 
 CODE_SUCCESS: Final = 200
@@ -288,6 +294,18 @@ AIRONE_WIND_NAMES: Final = {
     6: "기저",
 }
 
+# **서버가 목록을 안 줄 때 고를 수 있는 풍량.**
+#
+# `supportedAirVolumes` 라는 필드가 목록을 알려주는데 **APK 2.10.4 에는 그 필드가
+# 없다.** 서버가 나중에 넣은 것이고, 옛 펌웨어 기기는 지금도 안 내려준다.
+# 그때 앱이 무엇을 보고 판단하는지가 `configurable` 이다
+# (`AirOneControlFragment.allowedWindChoicesFromDids`).
+#
+#     z10 = 그 모드 항목 중 configurable 이 하나라도 true
+#     if (z10) { 미풍·약풍·강풍 을 모두 보여준다 }
+#     else     { airVolume 값이 1·2·3 인 것만 }
+AIRONE_SELECTABLE_AIR_VOLUMES: Final = (1, 2, 3, 4)
+
 # 앱은 `option != 1` 이면 풍량 대신 옵션 라벨을 보여준다. 숙면(4)만 예외로
 # 풍량을 함께 쓴다 (`AironeModeCode.labelFor`).
 AIRONE_OPTIONS_WITH_WIND: Final = frozenset({AIRONE_OPTION_NONE, AIRONE_OPTION_SLEEP})
@@ -517,6 +535,17 @@ MODEL_TYPE_LABELS: Final = {"em": "카본", "wm": "온수", "fm": "사계절"}
 SEASON_WINTER: Final = 0
 SEASON_SUMMER: Final = 2
 SEASON_NAMES: Final = {SEASON_WINTER: "난방", SEASON_SUMMER: "냉방"}
+
+# --- 조작음 음량 ----------------------------------------------------------
+#
+# **앱 음량 화면에 칸이 넷이다** — 음소거 + 3단계.
+# `MateDeviceSettingSoundVolumeFragment` 가 `selectedIndex` 를 0·1·2·3 중 하나로
+# 정하고 그대로 `setSoundVolume(int)` 에 넘긴다. 읽을 때도 같은 값으로 갈린다
+# (`initializeCurrentVolumeLevel`: 0 이면 음소거 아이콘, 1·2 각각, 나머지는 3).
+#
+# 보내는 필드는 `Desired.volume` (`Integer`), 명령 이름은 `control-volume`.
+# 라벨은 앱 화면 문구가 아니라 아이콘 이름(`mute`, `volumeLevel1~3`)을 따랐다.
+MAT_VOLUME_NAMES: Final = {0: "음소거", 1: "1단계", 2: "2단계", 3: "3단계"}
 
 # 사계절 모델은 `season` 이 어느 제어 서술자를 쓸지 고른다 —
 # 여름이면 `coolControl`, 그 외에는 `heatControl`. 설정값 경로는 `heater` 를 공유한다.

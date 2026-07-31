@@ -17,6 +17,7 @@ from typing import Any
 from .const import (
     CAPACITY_DOUBLE,
     MAT_ERROR_NAMES,
+    MAT_VOLUME_NAMES,
     MODE_HEAT,
     MODE_NAMES,
     MODES_ON,
@@ -148,6 +149,7 @@ class NavienDevice:
     heat_control: HeatControl | None
     cool_control: HeatControl | None
     has_power_ctrl: bool
+    has_beep: bool
     has_lock_mode: bool
     has_power_saving: bool
     has_sleep_mode: bool
@@ -213,6 +215,9 @@ class NavienDevice:
             heat_control=HeatControl.parse(functions.get("heatControl")),
             cool_control=HeatControl.parse(functions.get("coolControl")),
             has_power_ctrl=bool(functions.get("powerCtrl")),
+            # 앱의 `Functions` 클래스에는 `beep` 필드가 아예 없다 — 서버는 주는데
+            # 앱이 안 읽는다. 우리는 음량 엔티티를 만들지 말지 가르는 데 쓴다.
+            has_beep=bool(functions.get("beep")),
             has_lock_mode=bool(functions.get("lockMode")),
             has_power_saving=bool(functions.get("powerSaving")),
             has_sleep_mode=bool(sleep.get("enable")),
@@ -357,6 +362,42 @@ class NavienDevice:
     def season(self) -> int | None:
         value = self.reported.get("season")
         return int(value) if isinstance(value, (int, float)) else None
+
+    @property
+    def child_lock(self) -> bool | None:
+        """조작 잠금 상태. **읽기 전용이다.**
+
+        앱은 이 값을 보여주기만 한다. WiFi 로 잠금을 보내는 경로가 없다 —
+        `Desired.childLock` 은 `final` 이라 setter 가 없고,
+        `MATE_WIFI_DEVICE_CONTROL_LOCK` 상수는 앱 어디에서도 쓰이지 않는다.
+        스위치로 만들면 눌러도 아무 일이 없다.
+        """
+        value = self.reported.get("childLock")
+        return bool(value) if isinstance(value, bool) else None
+
+    @property
+    def volume(self) -> int | None:
+        """조작음 음량. 앱과 같은 0~3."""
+        value = self.reported.get("volume")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        number = int(value)
+        return number if number in MAT_VOLUME_NAMES else None
+
+    @property
+    def volume_name(self) -> str | None:
+        volume = self.volume
+        return MAT_VOLUME_NAMES.get(volume) if volume is not None else None
+
+    def build_volume_desired(self, volume: int) -> dict[str, Any]:
+        """음량 desired (`control-volume`).
+
+        앱 화면에 칸이 넷뿐이고 (`selectedIndex` 0·1·2·3) 그 값이 그대로
+        `Desired.volume` 에 실린다. **그 밖의 값은 보내지 않는다.**
+        """
+        if volume not in MAT_VOLUME_NAMES:
+            raise ValueError(f"확인된 음량 값이 아닙니다: {volume}")
+        return {"volume": volume}
 
     @property
     def season_name(self) -> str | None:

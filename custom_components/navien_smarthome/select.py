@@ -26,6 +26,7 @@ from .airone import AironeDevice
 from .const import (
     AIRONE_OPTION_SLEEP,
     LEVEL_STANDBY,
+    MAT_VOLUME_NAMES,
     SEASON_NAMES,
     ZONE_NAMES,
     level_label,
@@ -46,6 +47,13 @@ async def async_setup_entry(
         # 사계절 모델만 계절이 있다. 서버가 `coolControl` 을 줄 때가 그때다.
         if device.is_four_season:
             entities.append(NavienSmartSeasonSelect(coordinator, device))
+
+        # **`functions.beep` 이 있으면 소리를 내는 기기다.** 앱은 이 값을 안 보고
+        # 음량 화면을 여는데, 앱의 판단 기준을 찾지 못했다 — 모델별 표에도
+        # 음량 항목이 없다. 서버가 스스로 알려주는 값을 쓰는 편이 낫다.
+        # 없는 기기에 명령을 보내는 것보다 안 만드는 쪽이 안전하다.
+        if device.has_beep:
+            entities.append(NavienSmartVolumeSelect(coordinator, device))
 
         control = device.heat_control
         if control is None or not control.is_level:
@@ -110,6 +118,46 @@ class NavienSmartSeasonSelect(NavienSmartEntity, SelectEntity):
             if label == option:
                 await self.coordinator.async_send(
                     device, device.build_season_desired(value)
+                )
+                return
+
+
+class NavienSmartVolumeSelect(NavienSmartEntity, SelectEntity):
+    """조작음 음량 — 음소거 / 1 / 2 / 3 단계.
+
+    앱 음량 화면과 칸이 같다. `MateDeviceSettingSoundVolumeFragment` 가 고른
+    `selectedIndex`(0~3)를 그대로 `Desired.volume` 에 싣는다.
+
+    **끄고 켜는 것이 아니라 단계라서 스위치로 만들지 않았다.** 조작음을 통째로
+    끄는 `control-beep` 는 따로 있는데, 그건 값 체계가 다르고 앱이
+    2024년 이후 모델에만 붙인다 — 손대지 않는다.
+    """
+
+    _attr_icon = "mdi:volume-high"
+    _attr_options = list(MAT_VOLUME_NAMES.values())
+
+    def __init__(
+        self,
+        coordinator: NavienSmartCoordinator,
+        device: NavienDevice,
+    ) -> None:
+        super().__init__(coordinator, device)
+        self._attr_unique_id = f"{device.device_id}_volume"
+        self._attr_name = "조작음 음량"
+
+    @property
+    def current_option(self) -> str | None:
+        device = self.device
+        return device.volume_name if device is not None else None
+
+    async def async_select_option(self, option: str) -> None:
+        device = self.device
+        if device is None:
+            return
+        for value, label in MAT_VOLUME_NAMES.items():
+            if label == option:
+                await self.coordinator.async_send(
+                    device, device.build_volume_desired(value)
                 )
                 return
 

@@ -91,6 +91,10 @@ async def async_get_config_entry_diagnostics(
                 if coordinator.update_interval
                 else None
             ),
+            # **폴링이 도는지 먼저 본다.** 이 값이 주기보다 훨씬 크면 값이 옛것인
+            # 이유는 기기도 서버도 아니고 우리다.
+            "last_poll_seconds_ago": coordinator.poll_age,
+            "poll_failures": coordinator.poll_failures,
             "known_control_units": list(KNOWN_UNITS),
             # **「상태가 안 온다」의 원인을 로그 없이 가리는 값.**
             # 받은 개수가 0 이면 안 오는 것이고, 버린 개수가 있으면 와도 못 쓰는
@@ -182,6 +186,9 @@ def _entity_view(device: Any) -> dict[str, Any]:
         "season": device.season,
         "is_cooling": device.is_cooling,
         "has_unknown_season": device.has_unknown_season,
+        # 앱이 기기 설정 화면에 두는 값들. 잠금은 읽기만 되고 음량은 쓸 수 있다.
+        "child_lock": device.child_lock,
+        "volume": device.volume,
         # 상태가 어느 묶음까지 왔는지. 사계절 모델이 부분 응답을 보내서
         # `season`·`operationMode` 가 빠지는 일이 있었다 (v0.9.0).
         "reported_keys": sorted(device.reported or {}),
@@ -202,6 +209,7 @@ def _entity_view(device: Any) -> dict[str, Any]:
         "control_unit_known": bool(heat and heat.is_known),
         "functions": {
             "power_ctrl": device.has_power_ctrl,
+            "beep": device.has_beep,
             "lock_mode": device.has_lock_mode,
             "power_saving": device.has_power_saving,
             "sleep_mode": device.has_sleep_mode,

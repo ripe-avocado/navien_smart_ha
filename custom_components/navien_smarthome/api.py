@@ -32,6 +32,7 @@ from .const import (
     CODE_SUCCESS,
     CODE_TOKEN_EXPIRED,
     LOGIN_URL,
+    REQUEST_TIMEOUT_SECONDS,
     USER_AGENT,
 )
 
@@ -198,9 +199,10 @@ class NavienSmartApi:
                     "Referer": f"{LOGIN_URL}/member/login",
                 },
                 allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS),
             ) as resp:
                 html = await resp.text()
-        except aiohttp.ClientError as err:
+        except (aiohttp.ClientError, TimeoutError) as err:
             raise NavienSmartError(f"로그인 요청 실패: {err}") from err
 
         if _FAIL_POPUP in html:
@@ -306,9 +308,13 @@ class NavienSmartApi:
                 params=params,
                 headers=headers,
                 data=data,
+                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS),
             ) as resp:
                 text = await resp.text()
-        except aiohttp.ClientError as err:
+        except (aiohttp.ClientError, TimeoutError) as err:
+            # **`TimeoutError` 를 빠뜨리면 아무 기록도 남지 않는다.**
+            # `aiohttp.ClientError` 의 하위가 아니라(`OSError` 계열) 여기서
+            # 걸리지 않고 통째로 빠져나가, 실패 횟수도 로그도 남지 않았다.
             raise NavienSmartError(f"{path} 요청 실패: {err}") from err
 
         try:

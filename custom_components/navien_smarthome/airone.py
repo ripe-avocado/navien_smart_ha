@@ -36,6 +36,7 @@ from .const import (
     AIRONE_RUN_NAMES,
     AIRONE_RUN_OFF,
     AIRONE_RUN_ON,
+    AIRONE_SELECTABLE_AIR_VOLUMES,
     AIRONE_SENSOR_ALIASES,
     AIRONE_SENSOR_KINDS,
     AIRONE_V2_MIN_MODEL_CODE,
@@ -756,6 +757,10 @@ class AironeDevice:
         sleeping = option == AIRONE_OPTION_SLEEP
         result: list[AironeFanChoice] = []
         seen: set[str] = set()
+        # 서버가 같은 조합을 몇 개로 줬는지. 여러 개면 그 나열이 목록이다.
+        enumerated: dict[tuple[int, int], int] = {}
+        for item in self.modes:
+            enumerated[item.key] = enumerated.get(item.key, 0) + 1
 
         def add(opt: int, wind: int | None, label: str | None) -> None:
             if not label or label in seen:
@@ -771,12 +776,47 @@ class AironeDevice:
                 continue
 
             if item.option in AIRONE_OPTIONS_WITH_WIND:
-                # **`supportedAirVolumes` 가 고를 수 있는 목록이다.** `airVolume` 은
-                # 지금 값이라 그것만 보면 항목이 하나로 줄어든다 (실기기 제보에서
-                # 「자동」만 나오던 원인).
-                for value in item.supported_air_volumes or (
-                    (item.air_volume,) if item.air_volume is not None else ()
+                # **`configurable` 이 「풍량을 고를 수 있는가」다.** 앱이 그렇게 쓴다
+                # (`AirOneControlFragment.allowedWindChoicesFromDids`).
+                #
+                #     z10 = 그 모드 항목 중 configurable 이 하나라도 true
+                #     if (z10) { 미풍·약풍·강풍 을 모두 보여준다 }
+                #     else     { airVolume 값이 1·2·3 인 것만 }
+                #
+                # `supportedAirVolumes` 는 **APK 2.10.4 에 없는 필드**다. 서버가
+                # 나중에 추가했고 옛 펌웨어는 안 내려준다. 그것만 믿으면 옛 펌웨어
+                # 기기에서 「자동」 하나로 줄어든다 — 실기기 제보(`NRT-530Z3`,
+                # 룸콘 10.1)에서 앱은 6개인데 우리는 3개였다.
+                #
+                # 순서: 서버가 목록을 주면 그것, 아니면 고를 수 있다고 했으니
+                # 앱 표 전체, 그것도 아니면 지금 값 하나.
+                if item.supported_air_volumes:
+                    values: tuple[int, ...] = item.supported_air_volumes
+                elif (
+                    item.configurable
+                    and item.air_volume in AIRONE_SELECTABLE_AIR_VOLUMES
+                    and enumerated.get(item.key, 0) == 1
                 ):
+                    # **한 조합을 한 항목으로만 줬을 때 넓힌다.**
+                    #
+                    # 서버가 같은 조합을 여러 항목으로 나열하면(`4:1` 이 풍량 1·2·3
+                    # 으로 세 번) 그 나열이 곧 목록이다. 그때 넓히면 서버가 빼둔
+                    # 값을 되살리게 된다.
+                    #
+                    # 하나만 준 경우가 다르다. 그건 「지금 값」이고 목록이 아니다.
+                    #
+                    # **그 값이 네 단 중 하나일 때만 넓힌다.** 기저(5·6)를 주는
+                    # 기기까지 넓히면 서버가 알려준 항목을 **잃는다** — 기저가
+                    # 사라지고 미풍·약풍·강풍·자동이 대신 나온다. 넓히려다
+                    # 있던 것을 빼앗는 셈이라, 모르는 값이면 그대로 둔다.
+                    # `airVolume` 이 아예 없는 기기(전열교환기)도 넓히지 않는다 —
+                    # 풍량 단 자체가 없고 앱도 터보·절전만 보여준다.
+                    values = AIRONE_SELECTABLE_AIR_VOLUMES
+                elif item.air_volume is not None:
+                    values = (item.air_volume,)
+                else:
+                    values = ()
+                for value in values:
                     add(item.option, value, AIRONE_WIND_NAMES.get(value))
             else:
                 add(item.option, item.air_volume, AIRONE_OPTION_NAMES.get(item.option))

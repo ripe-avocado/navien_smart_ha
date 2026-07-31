@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -108,6 +109,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         self.drop_counts: dict[str, int] = {"mate_no_device": 0, "airone_no_device": 0}
         self._mqtt: NavienSmartMqtt | None = None
         self._skipped_logged: set[str] = set()
+        # **폴링이 돌기는 하는지**를 남긴다.
+        #
+        # 이슈 #1 에서 공기질 값이 열 시간 동안 그대로였는데, 조회 실패도 빈 응답도
+        # 0 이었다. 「방이 조용했다」와 「우리가 아예 못 읽었다」가 같은 모양으로
+        # 보였다 — 폴링 쪽 시각이 없어서다.
+        self.poll_stamp: float | None = None
+        self.poll_failures = 0
 
     # -- 수집 --------------------------------------------------------------
 
@@ -115,8 +123,10 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         try:
             raw_devices = await self.api.async_get_devices(self.home_seq)
         except NavienSmartAuthError as err:
+            self.poll_failures += 1
             raise ConfigEntryAuthFailed(str(err)) from err
         except NavienSmartError as err:
+            self.poll_failures += 1
             raise UpdateFailed(str(err)) from err
 
         previous = self.data or {}
@@ -180,6 +190,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         self.airone = airone
         self._tune_interval()
         await self._async_update_air_sensors()
+        self.poll_stamp = time.monotonic()
+        self.poll_failures = 0
         return devices
 
     def _tune_interval(self) -> None:
@@ -473,6 +485,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
     @property
     def mqtt_connected(self) -> bool:
         return self._mqtt is not None and self._mqtt.connected
+
+    @property
+    def poll_age(self) -> float | None:
+        """마지막으로 **끝까지 성공한** 폴링 뒤 흐른 초."""
+        if self.poll_stamp is None:
+            return None
+        return round(time.monotonic() - self.poll_stamp, 1)
 
     @property
     def mqtt_stats(self) -> dict[str, Any]:
