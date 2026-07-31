@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -26,8 +27,10 @@ from .const import (
     AIRONE_MODE_SLEEP_LABEL,
     AIRONE_MODES_WITH_HUMIDITY,
     AIRONE_OPTION_NAMES,
+    AIRONE_MODE_BYPASS,
     AIRONE_OPTION_NONE,
     AIRONE_OPTION_SLEEP,
+    LEGACY_NO_BYPASS_MODELS,
     LEGACY_DEFAULT_AIR_VOLUMES,
     LEGACY_EXTRA_FIELDS,
     LEGACY_MODE_DID,
@@ -396,7 +399,9 @@ class AironeDevice:
             for mode in (AironeMode.parse(item) for item in controller.get("mode") or [])
             if mode is not None
         )
-        modes = cls._legacy_modes(modes, raw.get("modelCode"))
+        modes = cls._legacy_modes(
+            modes, raw.get("modelCode"), str(raw.get("modelName") or "")
+        )
 
         # **문자열로 올 수도 있다.** 매트는 `{"mainItem": ..., "side": {...}}` 인데
         # 별칭을 안 나눠 쓰는 계정에서 그냥 이름 하나로 오는 경우를 배제할 근거가
@@ -459,7 +464,7 @@ class AironeDevice:
 
     @staticmethod
     def _legacy_modes(
-        modes: tuple[AironeMode, ...], model_code: Any
+        modes: tuple[AironeMode, ...], model_code: Any, model_name: str | None = None
     ) -> tuple[AironeMode, ...]:
         """구세대 모드 목록을 앱과 같게 만든다.
 
@@ -483,6 +488,12 @@ class AironeDevice:
         # 있다」로 짐작했다가 자동운전(12)과 요리(6)에서 틀렸다 — 둘 다
         # `configurable: false` 인데 미풍·약풍·강풍을 만들고 있었다.
         table = {(m, o): (vol, conf) for m, o, vol, conf in LEGACY_MODE_DID}
+
+        # **바이패스가 없다고 확인된 모델에서만 뺀다** (`LEGACY_NO_BYPASS_MODELS`).
+        # 모르는 모델은 그대로 둔다 — 넓게 막으면 되던 기기를 깨뜨린다.
+        plain = re.sub(r"[^A-Z0-9]", "", (model_name or "").upper())
+        if plain in LEGACY_NO_BYPASS_MODELS:
+            table.pop((AIRONE_MODE_BYPASS, AIRONE_OPTION_NONE), None)
 
         have = {(item.mode, item.option) for item in modes}
         merged = list(modes)
