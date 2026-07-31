@@ -30,6 +30,14 @@ async def async_setup_entry(
         for device in (coordinator.data or {}).values()
         if device.has_power_ctrl
     ]
+    # **서버가 잠금 기능을 알려줄 때만 만든다.** 앱은 모델 번호 표로 가르는데
+    # (`MateInfoData` 의 `case 257: supportLock = false`) 표에 실린 모델이 다섯
+    # 개뿐이라 새 모델을 못 따라간다. 서버 쪽 선언을 쓴다.
+    entities.extend(
+        NavienSmartChildLockSwitch(coordinator, device)
+        for device in (coordinator.data or {}).values()
+        if device.has_lock_mode
+    )
     entities.extend(
         AironePowerSwitch(coordinator, device) for device in coordinator.airone.values()
     )
@@ -71,6 +79,43 @@ class NavienSmartPowerSwitch(NavienSmartEntity, SwitchEntity):
         if device is None:
             return
         await self.coordinator.async_send(device, {"operationMode": mode})
+
+
+class NavienSmartChildLockSwitch(NavienSmartEntity, SwitchEntity):
+    """조작 잠금. 기기 본체 버튼을 잠근다.
+
+    **v0.12.0 은 이것을 읽기 전용 센서로 만들었다. 틀렸다.** 앱에 자물쇠 버튼이
+    있는데 못 찾았다 — 명령을 문자열 그대로 넘기는 호출만 훑었고, 잠금은
+    `"lock-on"`/`"lock-off"` 를 **변수로** 넘긴다.
+
+    켜면 잠근다. 앱 버튼과 같은 방향이다.
+    """
+
+    _attr_icon = "mdi:lock"
+
+    def __init__(self, coordinator: NavienSmartCoordinator, device: NavienDevice) -> None:
+        super().__init__(coordinator, device)
+        self._attr_unique_id = f"{device.device_id}_child_lock"
+        self._attr_name = "조작 잠금"
+
+    @property
+    def is_on(self) -> bool | None:
+        device = self.device
+        return device.child_lock if device is not None else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_set(False)
+
+    async def _async_set(self, locked: bool) -> None:
+        device = self.device
+        if device is None:
+            return
+        await self.coordinator.async_send(
+            device, device.build_child_lock_desired(locked)
+        )
 
 
 class AironePowerSwitch(AironeEntity, SwitchEntity):

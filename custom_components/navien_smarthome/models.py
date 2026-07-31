@@ -365,15 +365,28 @@ class NavienDevice:
 
     @property
     def child_lock(self) -> bool | None:
-        """조작 잠금 상태. **읽기 전용이다.**
-
-        앱은 이 값을 보여주기만 한다. WiFi 로 잠금을 보내는 경로가 없다 —
-        `Desired.childLock` 은 `final` 이라 setter 가 없고,
-        `MATE_WIFI_DEVICE_CONTROL_LOCK` 상수는 앱 어디에서도 쓰이지 않는다.
-        스위치로 만들면 눌러도 아무 일이 없다.
-        """
+        """조작 잠금 상태. `True` 면 잠겨 있다."""
         value = self.reported.get("childLock")
         return bool(value) if isinstance(value, bool) else None
+
+    def build_child_lock_desired(self, locked: bool) -> dict[str, Any]:
+        """조작 잠금 desired (`lock-on` / `lock-off`).
+
+        **v0.12.0 에서 「WiFi 로는 못 잠근다」고 판단한 것을 정정한다.** 제보자가
+        앱 제어 화면에 자물쇠 버튼이 있는 사진을 보내 다시 뒤졌더니 있었다.
+
+            // MateWifiModelControlViewModel
+            String str = !mateInfoData1.getLockState() ? "lock-on" : "lock-off";
+
+            // MateConstants
+            r11 = Boolean.valueOf(areEqual(r35, "lock-on"));   // childLock
+            r4  = new Desired(r11, new Event(modelCode), null × 12);
+
+        **계절 전환과 같은 모양**이고 토픽도 특별 분기가 없다 — `mateControlDevice`
+        의 기본 분기(`.../shadow/name/status/update`)로 간다. 우리가 전원·온도·계절에
+        이미 쓰는 그 토픽이다.
+        """
+        return {"childLock": bool(locked)}
 
     @property
     def volume(self) -> int | None:

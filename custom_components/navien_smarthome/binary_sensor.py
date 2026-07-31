@@ -6,7 +6,6 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -29,51 +28,11 @@ async def async_setup_entry(
         if control is not None and control.enable_safe and control.safe_value is not None:
             entities.append(NavienSmartHighTempWarning(coordinator, device))
         entities.append(NavienSmartErrorProblem(coordinator, device))
-        # **서버가 잠금 기능을 알려줄 때만 만든다.** 앱은 모델 번호 표로 가르는데
-        # (`MateInfoData` 의 `case 257: supportLock = false`) 표에 실린 모델이
-        # 다섯 개뿐이라 새 모델을 못 따라간다. 서버 쪽 선언을 쓴다.
-        if device.has_lock_mode:
-            entities.append(NavienSmartChildLock(coordinator, device))
 
     entities.extend(
         AironeErrorProblem(coordinator, airone) for airone in coordinator.airone.values()
     )
     async_add_entities(entities)
-
-
-class NavienSmartChildLock(NavienSmartEntity, BinarySensorEntity):
-    """조작 잠금이 걸려 있는지. **읽기 전용이다.**
-
-    스위치로 만들지 않았다. 앱에 WiFi 로 잠금을 보내는 경로가 없다 —
-    `Desired.childLock` 은 `final` 이라 setter 가 없고, 잠금·해제 상수
-    (`MATE_WIFI_DEVICE_CONTROL_LOCK`)는 앱 어디에서도 쓰이지 않는다.
-    블루투스 모델에만 조작 경로가 있다.
-
-    **눌러도 아무 일이 없는 스위치는 없느니만 못하다.** 상태만 보여준다.
-    """
-
-    _attr_device_class = BinarySensorDeviceClass.LOCK
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(
-        self,
-        coordinator: NavienSmartCoordinator,
-        device: NavienDevice,
-    ) -> None:
-        super().__init__(coordinator, device)
-        self._attr_unique_id = f"{device.device_id}_child_lock"
-        self._attr_name = "조작 잠금"
-
-    @property
-    def is_on(self) -> bool | None:
-        device = self.device
-        if device is None:
-            return None
-        locked = device.child_lock
-        if locked is None:
-            return None
-        # `LOCK` 는 **켜짐 = 열림**이다. 잠겨 있으면 꺼짐으로 보여야 한다.
-        return not locked
 
 
 class NavienSmartHighTempWarning(NavienSmartEntity, BinarySensorEntity):
