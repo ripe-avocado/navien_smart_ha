@@ -38,7 +38,14 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_ACCEPTED_SUFFIX = "/update/accepted"
+# **두 가지를 받는다.**
+#
+#   /update/accepted  기기가 상태를 올렸을 때
+#   /get/accepted     우리가 섀도우에 저장된 문서를 요청했을 때
+#
+# 후자는 붙인 직후 한 번 쓴다. 기기가 꺼져 있어도 서버가 답하므로,
+# 이게 없으면 기기가 스스로 뭔가 보낼 때까지 상태가 비어 있다.
+_ACCEPTED_SUFFIXES = ("/update/accepted", "/get/accepted")
 _RECONNECT_DELAYS = (5, 15, 30, 60, 120, 300)
 
 # 에어원 메시지를 매트 메시지와 가르는 기준. 앱도 구독 토픽 문자열로 판별한다
@@ -110,8 +117,11 @@ def build_signed_ws_path(creds: AwsCredentials, region: str = IOT_REGION) -> str
 def extract_reported(payload: bytes, topic: str) -> tuple[str, dict[str, Any]] | None:
     """쓸 이벤트만 통과시킨다.
 
-    통과 조건이 두 겹이다 — shadow 토픽이 `/update/accepted` 이고,
-    `state.reported` 가 있어야 한다. 반환값은 `(deviceId, reported)`.
+    통과 조건이 두 겹이다 — shadow 토픽이 `/update/accepted` 나 `/get/accepted`
+    이고, `state.reported` 가 있어야 한다. 반환값은 `(deviceId, reported)`.
+
+    `/get/accepted` 응답에는 `desired` 와 `metadata` 도 함께 온다. **`reported`
+    만 읽는다** — `desired` 는 「보낸 값」이지 기기가 확인한 값이 아니다.
     """
     try:
         event = json.loads(payload)
@@ -120,7 +130,7 @@ def extract_reported(payload: bytes, topic: str) -> tuple[str, dict[str, Any]] |
         return None
 
     shadow_topic = event.get("topic") or ""
-    if not shadow_topic.endswith(_ACCEPTED_SUFFIX):
+    if not shadow_topic.endswith(_ACCEPTED_SUFFIXES):
         return None
 
     state = ((event.get("payload") or {}).get("state")) or {}

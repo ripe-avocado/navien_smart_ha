@@ -477,8 +477,21 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         **설정을 바꾸지 않는다** — 보낼 값이 없기 때문이다.
 
         꺼져 있는 기기에는 보내지 않는다. 응답하지 않고 shadow 에만 쌓인다.
+
+        **그래서 섀도우 조회를 먼저 한다.** 서버에 저장된 마지막 문서를 달라는
+        읽기라 **꺼져 있는 기기도 답한다.** 붙인 직후 설정값이 바로 생기고,
+        `climate` 가 「보낼 구역 값이 없습니다」로 막히는 일이 없어진다.
         """
         for device in (self.data or {}).values():
+            # **먼저 저장된 것을 읽는다.** 온·오프라인을 가리지 않는다 —
+            # 기기가 아니라 서버가 답하기 때문이다. 실기기 두 대로 확인했다.
+            try:
+                await self.api.async_request_shadow(self.home_seq, device.raw)
+                _LOGGER.debug("%s 섀도우를 조회했습니다", device.nickname)
+            except NavienSmartError as err:
+                # 실패해도 아래 요청이 남아 있다. v0.13.x 와 같은 상태가 될 뿐이다.
+                _LOGGER.debug("%s 섀도우 조회 실패: %s", device.nickname, err)
+
             if not device.available:
                 _LOGGER.debug("%s 는 오프라인이라 초기 상태를 요청하지 않습니다", device.nickname)
                 continue

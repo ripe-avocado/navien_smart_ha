@@ -402,6 +402,48 @@ class NavienSmartApi:
             raw_body=raw,
         )
 
+    async def async_request_shadow(
+        self, home_seq: int, device: dict[str, Any]
+    ) -> None:
+        """섀도우에 **저장된 마지막 상태**를 달라고 한다.
+
+        AWS 섀도우는 기기가 마지막으로 보고한 문서를 서버에 들고 있다. 여기에
+        빈 본문을 보내면 그 문서를 `.../status/get/accepted` 로 돌려준다.
+
+        **읽기다. 아무것도 바꾸지 않는다.** `desired` 를 쓰는 기존 초기 요청과
+        달리 섀도우에 흔적을 남기지 않는다.
+
+        **꺼져 있는 기기도 답한다** — 기기가 아니라 서버가 답하기 때문이다.
+        그래서 매트를 붙인 직후, 기기가 아직 아무것도 안 보낸 상태에서도
+        설정값을 바로 얻는다. 그게 없으면 `climate` 가 온도를 실을 수 없어
+        「보낼 구역 값이 없습니다」로 막힌다.
+
+        **앱은 이 토픽을 보내지 않는다.** 다만 `status/get/accepted` 를 처리하는
+        코드는 있고, 실기기 두 대(온라인·오프라인)로 서버가 받아주는 것을
+        확인했다 — `code=200` 과 함께 응답이 왔다.
+        """
+        session = self._require_session()
+        device_seq = device["deviceSeq"]
+        topic = f"$aws/things/{device['deviceId']}/shadow/name/status/get"
+
+        body_obj = {
+            "serviceCode": device["serviceCode"],
+            "topic": "\x00TOPIC\x00",
+            # **빈 본문이 규격이다.** 값을 넣으면 조회가 아니게 된다.
+            "payload": {},
+        }
+        raw = json.dumps(body_obj, ensure_ascii=False).replace(
+            '"\\u0000TOPIC\\u0000"', json.dumps(topic).replace("/", "\\/")
+        )
+
+        _LOGGER.debug("섀도우 조회 deviceSeq=%s", device_seq)
+        await self._async_authed_request(
+            "POST",
+            f"/devices/{device_seq}/control",
+            params={"homeSeq": home_seq, "userSeq": session.user_seq},
+            raw_body=raw,
+        )
+
     # -- 에어원 ------------------------------------------------------------
 
     async def async_airone_request(
