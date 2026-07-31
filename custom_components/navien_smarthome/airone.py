@@ -431,9 +431,14 @@ class AironeDevice:
         if code is None or code >= AIRONE_V2_MIN_MODEL_CODE:
             return modes
 
+        # **풍량을 고를 수 있는지는 파일이 정한다.** 「option == 1 이면 고를 수
+        # 있다」로 짐작했다가 자동운전(12)과 요리(6)에서 틀렸다 — 둘 다
+        # `configurable: false` 인데 미풍·약풍·강풍을 만들고 있었다.
+        table = {(m, o): (vol, conf) for m, o, vol, conf in LEGACY_MODE_DID}
+
         have = {(item.mode, item.option) for item in modes}
         merged = list(modes)
-        for mode_code, option, air_volume in LEGACY_MODE_DID:
+        for (mode_code, option), (air_volume, conf) in table.items():
             if (mode_code, option) in have:
                 continue
             merged.append(
@@ -441,29 +446,28 @@ class AironeDevice:
                     mode=mode_code,
                     option=option,
                     air_volume=air_volume,
-                    # 기본 조합에서만 풍량을 고를 수 있다. 터보·절전·숙면은
-                    # 옵션 자체가 풍량을 대신한다.
                     supported_air_volumes=(
-                        LEGACY_DEFAULT_AIR_VOLUMES
-                        if option == AIRONE_OPTION_NONE
-                        else ()
+                        LEGACY_DEFAULT_AIR_VOLUMES if conf else ()
                     ),
-                    configurable=option == AIRONE_OPTION_NONE,
+                    configurable=conf,
                     humidity_min=None,
                     humidity_max=None,
                 )
             )
-        # DID 가 준 기본 조합에는 `supportedAirVolumes` 가 없다. 그 자리에만 채운다.
+        # DID 가 준 조합에도 `supportedAirVolumes` 가 없다. **앱은 구세대에서 DID 를
+        # 아예 안 보므로** 파일이 아는 조합이면 파일 쪽 판단으로 덮는다.
         return tuple(
             (
                 item
-                if item.option != AIRONE_OPTION_NONE or item.supported_air_volumes
+                if item.key not in table or item.supported_air_volumes
                 else AironeMode(
                     mode=item.mode,
                     option=item.option,
                     air_volume=item.air_volume,
-                    supported_air_volumes=LEGACY_DEFAULT_AIR_VOLUMES,
-                    configurable=True,
+                    supported_air_volumes=(
+                        LEGACY_DEFAULT_AIR_VOLUMES if table[item.key][1] else ()
+                    ),
+                    configurable=table[item.key][1],
                     humidity_min=item.humidity_min,
                     humidity_max=item.humidity_max,
                 )
