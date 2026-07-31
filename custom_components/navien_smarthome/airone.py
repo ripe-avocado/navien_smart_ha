@@ -30,7 +30,7 @@ from .const import (
     AIRONE_MODE_BYPASS,
     AIRONE_OPTION_NONE,
     AIRONE_OPTION_SLEEP,
-    LEGACY_NO_BYPASS_MODELS,
+    LEGACY_BYPASS_MODEL_PREFIXES,
     LEGACY_DEFAULT_AIR_VOLUMES,
     LEGACY_EXTRA_FIELDS,
     LEGACY_MODE_DID,
@@ -489,10 +489,11 @@ class AironeDevice:
         # `configurable: false` 인데 미풍·약풍·강풍을 만들고 있었다.
         table = {(m, o): (vol, conf) for m, o, vol, conf in LEGACY_MODE_DID}
 
-        # **바이패스가 없다고 확인된 모델에서만 뺀다** (`LEGACY_NO_BYPASS_MODELS`).
-        # 모르는 모델은 그대로 둔다 — 넓게 막으면 되던 기기를 깨뜨린다.
+        # **바이패스는 있다고 확인된 모델에만** (`LEGACY_BYPASS_MODEL_PREFIXES`).
+        # 모르는 모델에는 안 넣는다 — 없는데 보이면 누른 사용자가 기기를
+        # 되돌려야 하고, 있는데 안 보이는 것은 제보 한 줄로 넣으면 된다.
         plain = re.sub(r"[^A-Z0-9]", "", (model_name or "").upper())
-        if plain in LEGACY_NO_BYPASS_MODELS:
+        if not plain.startswith(LEGACY_BYPASS_MODEL_PREFIXES):
             table.pop((AIRONE_MODE_BYPASS, AIRONE_OPTION_NONE), None)
 
         have = {(item.mode, item.option) for item in modes}
