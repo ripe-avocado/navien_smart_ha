@@ -428,7 +428,7 @@ AIRONE_SENSOR_KINDS: Final = {
     "pm2Dot5": ("초미세먼지", "㎍/㎥", "pm25"),
     "pm10": ("미세먼지", "㎍/㎥", "pm10"),
     "co2": ("이산화탄소", "ppm", "carbon_dioxide"),
-    "tvoc": ("휘발성유기화합물", None, None),
+    "tvoc": ("휘발성유기화합물", "ppb", None),
     "radon": ("라돈", "Bq/㎥", None),
     "temperature": ("온도", "°C", "temperature"),
     "humidity": ("습도", "%", "humidity"),
@@ -437,7 +437,19 @@ AIRONE_SENSOR_KINDS: Final = {
 
 # 단위를 앱에서 뽑지 않고 판단으로 정한 항목. 제보로 틀린 것이 드러나면 고친다.
 # 진단에 남겨서 어느 값이 근거 없이 붙었는지 밖에서 볼 수 있게 한다.
-AIRONE_INFERRED_UNITS: Final = frozenset({"radon"})
+#
+# **앱이 화면에 적는 단위는 넷뿐이다.** 리소스 전수 확인 (APK 2.10.4):
+#
+#     극초미세먼지 PM1.0 (㎍/㎥)   초미세먼지 PM2.5 (㎍/㎥)
+#     미세먼지    PM10  (㎍/㎥)   이산화탄소 CO2   (ppm)
+#
+# TVOC 와 라돈은 **앱도 단위를 안 보여준다.** 설명 화면 제목이
+# 「휘발성 유기화합물 TVOC」 · 「라돈 RADON」 으로 끝난다. `ppb` 와 `Bq` 는
+# 리소스에도 코드에도 없다.
+#
+# 그래도 붙이는 이유는 **숫자만 있고 단위가 없으면 읽을 수 없어서**다.
+# 둘 다 그 분야에서 쓰는 단위가 사실상 하나다. 틀렸다면 제보로 고친다.
+AIRONE_INFERRED_UNITS: Final = frozenset({"radon", "tvoc"})
 
 
 def airone_mode_label(mode: int, option: int) -> str:
