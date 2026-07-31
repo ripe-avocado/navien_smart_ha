@@ -301,6 +301,12 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         for device in self.airone.values():
             if not device.available:
                 continue
+            if not device.wants_air_sensors:
+                # **센서가 없다고 기기가 밝힌 경우.** 물어봐야 빈 응답만 온다.
+                # 5분마다 헛도는 요청이 하나 줄고, 그만큼 폴링이 실패할 자리도
+                # 줄어든다. 나중에 에어모니터를 달면 기기목록에 잡혀서 다시 묻는다.
+                self._log_no_air_sensors(device)
+                continue
             try:
                 airs = await self.api.async_get_air_sensor(
                     self.home_seq, device.device_seq
@@ -329,6 +335,23 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                     "확인되지 않은 공기질 항목은 만들지 않습니다: "
                     + ", ".join(sorted(set(unknown))),
                 )
+
+    def _log_no_air_sensors(self, device: AironeDevice) -> None:
+        """공기질을 안 묻기로 한 것을 **한 번만** 알린다.
+
+        조용히 건너뛰면 「공기질 엔티티가 왜 없냐」는 물음에 답할 근거가 없다.
+        판단이 틀렸다면 이 줄이 제보로 돌아온다.
+        """
+        key = f"{device.device_id}:no-air-sensors"
+        if key in self._skipped_logged:
+            return
+        self._skipped_logged.add(key)
+        _LOGGER.info(
+            "%s 는 공기질 센서를 갖고 있지 않다고 알려왔습니다 "
+            "(룸콘 센서 목록 비어 있음, 에어모니터 없음). 공기질을 조회하지 "
+            "않습니다. 앱에는 공기질이 보이는데 HA 에 없다면 제보해 주세요",
+            device.nickname,
+        )
 
     def _log_unsupported(self, raw: dict[str, Any]) -> None:
         """지원하지 않는 기기를 만나면 이유를 알린다.

@@ -318,6 +318,12 @@ def _airone_view(device: Any, restored: bool = False) -> dict[str, Any]:
         # 읽는데, 빈 응답으로 지우지 않기로 한 뒤로는 갱신이 멈춰도 화면에 옛 값이
         # 그대로 남는다. 아래 셋으로 「방이 조용한 것」과 「우리가 못 읽는 것」을
         # 가른다. 초와 개수뿐이라 개인정보는 없다.
+        # **공기질을 물어볼 기기인지.** 센서를 아무도 안 들고 있으면 안 묻는다 —
+        # 그때 아래 값들이 전부 0·null 인 것은 고장이 아니다.
+        "wants_air_sensors": device.wants_air_sensors,
+        "declared_sensor_count": (
+            None if device.declared_sensors is None else len(device.declared_sensors)
+        ),
         "air_sensor_changed_seconds_ago": device.air_sensor_age,
         "air_sensor_empty_responses": device.air_sensor_empty,
         "air_sensor_read_errors": device.air_sensor_errors,

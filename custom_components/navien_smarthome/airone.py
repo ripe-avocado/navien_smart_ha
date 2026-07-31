@@ -280,6 +280,15 @@ class AironeDevice:
     # 세대 판정과 무관하다. 지금은 공기질을 본체 기기에 붙이고, 이 정보는
     # 진단에만 담아 제보로 판정한다 (명세 6-6).
     air_monitors: tuple[dict[str, Any], ...]
+    # **기기가 「나는 이런 센서를 갖고 있다」고 스스로 밝힌 것.**
+    #
+    #   NRT-530S3 (모니터 없음)  roomController.sensor 에 표가 있다   ← 룸콘 내장
+    #   NRT-530Z3 (모니터 있음)  roomController.sensor 는 빈 배열이고
+    #                            airMonitor[].sensor 에 표가 있다     ← 별도 기기
+    #
+    # 둘 다 없는 기기도 있다 — 모니터를 안 산 전열교환기가 그렇다.
+    # 그 기기에 공기질을 물어보는 것은 헛일이다 (`wants_air_sensors`).
+    declared_sensors: tuple[Any, ...] | None
     sensor_kinds: tuple[str, ...]
     rc_version: str | None
     odu_version: str | None
@@ -381,6 +390,12 @@ class AironeDevice:
                 }
                 for item in did.get("airMonitor") or []
                 if isinstance(item, dict)
+            ),
+            # **키가 아예 없으면 「없다」가 아니라 「모른다」다.** 그때는 물어본다.
+            declared_sensors=(
+                tuple(controller["sensor"])
+                if isinstance(controller.get("sensor"), list)
+                else None
             ),
             sensor_kinds=(),
             rc_version=_version_text(controller.get("version")),
@@ -905,6 +920,25 @@ class AironeDevice:
             # 서버가 옛 값을 계속 주는 것일 수도 있다 — 세어서 판단에 넘긴다.
             self.air_sensor_unchanged += 1
         return unknown
+
+    @property
+    def wants_air_sensors(self) -> bool:
+        """이 기기에 공기질을 물어볼 이유가 있는가.
+
+        **없다고 확신할 때만 안 묻는다.** 셋 중 하나라도 걸리면 묻는다.
+
+        - 에어모니터가 붙어 있다 → 센서는 거기 있다
+        - 룸콘이 센서 표를 내놨다 → 룸콘에 들어 있다
+        - 표 자체가 안 왔다 → **모르는 것**이지 없는 것이 아니다
+
+        모니터 없는 전열교환기가 여기 걸린다. 그런 기기에 5분마다 물어봐야
+        빈 응답만 오고, v0.12.0 이전에는 그 호출이 늦으면 **폴링 전체가 죽었다.**
+        """
+        if self.air_monitors:
+            return True
+        if self.declared_sensors is None:
+            return True
+        return bool(self.declared_sensors)
 
     @property
     def air_sensor_age(self) -> float | None:
