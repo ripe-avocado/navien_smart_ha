@@ -76,6 +76,10 @@ body:
       label: 확인해 보셨나요
       options:
         - label: >-
+            HACS 에서 최신 버전으로 올린 뒤에도 같은 증상이 나옵니다.
+            (이미 고쳐진 것일 수 있어 먼저 확인하면 서로 시간을 아낍니다)
+          required: false
+        - label: >-
             나비엔 앱을 닫은 상태에서도 같은 증상이 나옵니다.
             (계정당 세션이 하나라 앱을 켜두면 HA 가 밀려납니다)
           required: false
