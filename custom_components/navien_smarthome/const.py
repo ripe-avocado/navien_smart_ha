@@ -131,10 +131,15 @@ AIRONE_SILENCE_CHECK_SECONDS: Final = 45
 AIRONE_RUN_ON: Final = 1
 AIRONE_RUN_OFF: Final = 2
 AIRONE_RUN_AWAY: Final = 3
+# 4 — 제습 운전을 끈 뒤 기기가 스스로 내부를 말리는 「자동 건조」 상태. 실기기
+# `NRT-530Z3`(모델코드 1901)에서 전원을 끄면 이 값이 관측됐다. 없으면 운전 상태가
+# 「알 수 없음(4)」으로 뜬다.
+AIRONE_RUN_AUTO_DRY: Final = 4
 AIRONE_RUN_NAMES: Final = {
     AIRONE_RUN_ON: "운전",
     AIRONE_RUN_OFF: "정지",
     AIRONE_RUN_AWAY: "외출",
+    AIRONE_RUN_AUTO_DRY: "자동 건조중",
 }
 
 # 값은 `ROOM_OPERATION_MODE_*` / `OPERATION_MODE_*`, 이름은 앱 제어화면 문자열
