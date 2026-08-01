@@ -172,6 +172,10 @@ class AironeStateSensor(AironeEntity, SensorEntity):
             attrs["odu_model_code"] = device.odu_model_code
         if device.target_humidity is not None:
             attrs["target_humidity"] = device.target_humidity
+        # 자동건조 중일 때만 있다. 상태 문구는 「자동건조」로 두고 숫자는 여기 둔다 —
+        # 상태에 섞으면 문자열을 비교하는 자동화가 매번 깨진다.
+        if device.auto_dry_percent is not None:
+            attrs["auto_dry_percent"] = device.auto_dry_percent
         return attrs
 
 

@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from .const import (
+    AIRONE_AUTO_DRY_TYPE,
+    AIRONE_RUN_AUTO_DRY,
     AIRONE_HUMIDITY_REPORT_TYPE,
     AIRONE_HUMIDITY_TYPE,
     AIRONE_LEVEL_NAMES,
@@ -693,6 +695,28 @@ class AironeDevice:
     def has_error(self) -> bool:
         code = self.error_code
         return code is not None and code != 0
+
+    @property
+    def auto_dry_percent(self) -> int | None:
+        """자동건조 진행률(%). 자동건조 중이 아니면 `None`.
+
+        앱은 상태 줄에 `자동건조 중 47%` 로 함께 보여준다. 우리는 **상태 문구를
+        「자동건조」로 두고 진행률은 속성으로 뺀다** — 상태에 숫자를 섞으면
+        문자열을 비교하는 자동화가 매번 깨진다.
+
+        `running` 이 4 일 때만 읽는다. 앱도 그 조건 안에서만 이 값을 본다.
+        """
+        if self.running != AIRONE_RUN_AUTO_DRY:
+            return None
+        # **뒤에서부터 찾는다.** 앱이 그렇게 한다 — 같은 번호가 여러 번 오면
+        # 나중 것이 최신이다.
+        for extra in reversed(self._controller.get("additionalData") or []):
+            if not isinstance(extra, dict):
+                continue
+            if _as_int(extra.get("type")) != AIRONE_AUTO_DRY_TYPE:
+                continue
+            return _as_int(extra.get("value"))
+        return None
 
     @property
     def target_humidity(self) -> int | None:

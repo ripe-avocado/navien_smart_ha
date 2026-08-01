@@ -142,8 +142,9 @@ AIRONE_RUN_AWAY: Final = 3
 #     → "자동건조 중 %02d%%"
 #
 # 이름은 앱 표기(`자동건조`)를 따르고 「중」은 뺐다 — 나머지가 `운전`·`정지`·
-# `외출` 로 명사라 결을 맞춘다. 앱은 진행률(`%02d%%`)도 함께 보여주는데, 그 값은
-# `additionalData` 에 있다. 아직 읽지 않는다.
+# `외출` 로 명사라 결을 맞춘다. 앱이 함께 보여주는 진행률(`%02d%%`)은
+# `AIRONE_AUTO_DRY_TYPE` 로 읽어 **속성**에 담는다. 상태 문구에 숫자를 섞으면
+# 문자열을 비교하는 자동화가 매번 깨진다.
 AIRONE_RUN_AUTO_DRY: Final = 4
 AIRONE_RUN_NAMES: Final = {
     AIRONE_RUN_ON: "운전",
@@ -224,7 +225,7 @@ LEGACY_MODE_DID: Final = (
     (8, 3, 4, False),    # 청정 절전
     # 바이패스는 내장 파일에 없다. 신형 세 대가 모두 `configurable: true` 라
     # 그것을 따른다 — 유일한 근거다.
-    # **모든 구형에 붙이지 않는다.** `LEGACY_BYPASS_MARK` 참조.
+    # **모든 구형에 붙이지 않는다.** `LEGACY_BYPASS_MODEL_PREFIXES` 참조.
     (17, 1, 4, True),
 )
 
@@ -389,6 +390,16 @@ AIRONE_MODES_WITH_HUMIDITY: Final = frozenset({9, 10})
 # 번호에만 의존하지 않는다 — 서버가 준 범위 안에 있는 값을 함께 본다.
 AIRONE_HUMIDITY_TYPE: Final = 1
 AIRONE_HUMIDITY_REPORT_TYPE: Final = 3
+
+# 자동건조 진행률. **앱 코드에서 확인했다.**
+#
+#     do { ... } while (additionalDataStatusPrevious.getType() != 4);
+#     value = additionalDataStatus.getValue();
+#     textView8.setText(Util.format("자동건조 중 %02d%%", value));
+#
+# **뒤에서부터 훑어 마지막 것을 쓴다** (`listIterator(size())` + `previous()`).
+# 같은 번호가 여러 번 오면 나중 것이 최신이라고 보는 것이다. 우리도 그렇게 한다.
+AIRONE_AUTO_DRY_TYPE: Final = 4
 
 # 앱의 희망습도 −/+ 버튼이 5씩 움직인다
 # (`AirOneControlFragment`: `setProgress(getProgress() ± 5)`). 서버는 min/max 만
