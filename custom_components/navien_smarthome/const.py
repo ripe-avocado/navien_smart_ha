@@ -131,10 +131,25 @@ AIRONE_SILENCE_CHECK_SECONDS: Final = 45
 AIRONE_RUN_ON: Final = 1
 AIRONE_RUN_OFF: Final = 2
 AIRONE_RUN_AWAY: Final = 3
+# 4 — 제습 운전을 끈 뒤 기기가 스스로 내부를 말리는 「자동 건조」 상태. 실기기
+# `NRT-530Z3`(모델코드 1901)에서 전원을 끄면 이 값이 관측됐다 (PR #15, moKorean).
+# 없으면 운전 상태가 「알 수 없음(4)」으로 뜬다.
+#
+# **앱 코드에서도 확인했다.**
+#
+#     if (... roomController.getRunning() != 4) { ... }
+#     getString(R.string.STR_FRAGMENT_AIRONE_CONTROL_AUTO_DEHUMIDITY)
+#     → "자동건조 중 %02d%%"
+#
+# 이름은 앱 표기(`자동건조`)를 따르고 「중」은 뺐다 — 나머지가 `운전`·`정지`·
+# `외출` 로 명사라 결을 맞춘다. 앱은 진행률(`%02d%%`)도 함께 보여주는데, 그 값은
+# `additionalData` 에 있다. 아직 읽지 않는다.
+AIRONE_RUN_AUTO_DRY: Final = 4
 AIRONE_RUN_NAMES: Final = {
     AIRONE_RUN_ON: "운전",
     AIRONE_RUN_OFF: "정지",
     AIRONE_RUN_AWAY: "외출",
+    AIRONE_RUN_AUTO_DRY: "자동건조",
 }
 
 # 값은 `ROOM_OPERATION_MODE_*` / `OPERATION_MODE_*`, 이름은 앱 제어화면 문자열

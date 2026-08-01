@@ -95,6 +95,18 @@ async def async_get_config_entry_diagnostics(
             # 이유는 기기도 서버도 아니고 우리다.
             "last_poll_seconds_ago": coordinator.poll_age,
             "poll_failures": coordinator.poll_failures,
+            # **HA 쪽에서 폴링을 꺼둘 수 있다.**
+            #
+            #   설정 → 기기 및 서비스 → 나비엔 스마트 → ⋮ → 시스템 옵션
+            #   → 「변경 사항에 대한 폴링 활성화」
+            #
+            # 끄면 HA 가 주기 갱신을 통째로 멈춘다. 그런데 MQTT 는 우리가 직접
+            # 붙으므로 계속 살아 있다 — **모드·전원은 멀쩡한데 공기질만 멈춘다.**
+            # 그때 `last_poll_seconds_ago` 만 커지고 `poll_failures` 는 0 이라,
+            # 이 값이 없으면 「왜 안 도는지」를 물어봐야만 알 수 있다.
+            "polling_disabled_in_ha": bool(
+                getattr(entry, "pref_disable_polling", False)
+            ),
             "known_control_units": list(KNOWN_UNITS),
             # **「상태가 안 온다」의 원인을 로그 없이 가리는 값.**
             # 받은 개수가 0 이면 안 오는 것이고, 버린 개수가 있으면 와도 못 쓰는
