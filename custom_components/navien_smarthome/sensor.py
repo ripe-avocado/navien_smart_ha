@@ -64,7 +64,7 @@ async def async_setup_entry(
 class NavienSmartModeSensor(NavienSmartEntity, SensorEntity):
     """`operationMode` 를 사람이 읽는 이름으로."""
 
-    _attr_name = "운전 상태"
+    _attr_name = "운전상태"
     _attr_icon = "mdi:bed"
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: NavienDevice) -> None:
@@ -141,7 +141,7 @@ class NavienSmartErrorSensor(NavienSmartEntity, SensorEntity):
 class AironeStateSensor(AironeEntity, SensorEntity):
     """`running` 을 사람이 읽는 이름으로. 운전 / 정지 / 외출."""
 
-    _attr_name = "운전 상태"
+    _attr_name = "운전상태"
     _attr_icon = "mdi:air-filter"
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:

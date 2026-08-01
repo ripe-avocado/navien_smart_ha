@@ -447,7 +447,7 @@ AIRONE_SENSOR_ALIASES: Final = {
     "voc": "tvoc",
     "t_voc": "tvoc",
     "tvocvalue": "tvoc",
-    # 종합 공기질
+    # 통합공기질
     "airquality": "total",
     "air_quality": "total",
     "airqualityscore": "total",
@@ -493,7 +493,7 @@ AIRONE_SENSOR_KINDS: Final = {
     "radon": ("라돈", "Bq/㎥", None),
     "temperature": ("온도", "°C", "temperature"),
     "humidity": ("습도", "%", "humidity"),
-    "total": ("종합 공기질", None, None),
+    "total": ("통합공기질", None, None),
 }
 
 # 단위를 앱에서 뽑지 않고 판단으로 정한 항목. 제보로 틀린 것이 드러나면 고친다.
@@ -663,8 +663,31 @@ CONF_HOME_SEQ: Final = "home_seq"
 UPDATE_INTERVAL_SECONDS: Final = 900
 
 # 에어원이 있으면 짧게 돈다. 공기질 값은 MQTT 로 오지 않고 `/air-sensor` 를 읽어야
-# 하는데, 15분마다 갱신되는 미세먼지 수치는 쓸 수가 없다. 앱은 60초마다 읽는다.
+# 하는데, 15분마다 갱신되는 미세먼지 수치는 쓸 수가 없다.
 AIRONE_UPDATE_INTERVAL_SECONDS: Final = 300
+
+# **밖에서 들어오는 갱신 요청의 하한 — 폴링 주기와 같게 둔다.**
+#
+# `homeassistant.update_entity` 로 코디네이터를 언제든 깨울 수 있다. HA 기본
+# 하한은 10초라, 자동화를 10초마다 걸면 계정 하나가 하루 8,640번 나비엔 서버를
+# 두드린다. 우리는 비공식 클라이언트다 — 막히면 그 사람만 막히는 게 아니라
+# 통합 전체가 막힌다.
+#
+# **처음엔 60초로 잡았다. 앱이 1분마다 읽으니 앱을 상한으로 삼자는 생각이었다.**
+# 틀렸다. 앱의 1분은 **화면을 보는 동안만**이고 우리는 24시간 돈다. 그 값을
+# 하한으로 두면 우리 기본값(5분)보다 5배 빠른 것을 허용하는 셈이라, 하한이
+# 기본값보다 헐거워진다.
+#
+# 그래서 숫자를 고르지 않고 규칙으로 둔다 — **밖에서 깨워도 우리 폴링 주기보다
+# 빠르게는 못 간다.** `_tune_interval()` 이 주기를 바꿀 때 이 값도 같이 따라간다
+# (매트만 있으면 900초, 환기청정이 있으면 300초).
+#
+# 여기 상수는 **시작값**이다 — 코디네이터가 만들어질 때의 주기와 같게 둔다.
+# 첫 폴링에서 환기청정이 보이면 `_tune_interval()` 이 300초로 함께 내린다.
+#
+# 첫 요청은 그대로 즉시 처리된다 (`immediate=True`) — 「지금 새로고침」이 먹통이
+# 되면 안 된다. 막는 것은 **반복**이지 한 번이 아니다.
+MIN_REFRESH_COOLDOWN_SECONDS: Final = UPDATE_INTERVAL_SECONDS
 
 # 진단 값을 사람이 읽는 이름으로 옮기는 표. 위 표들이 정의된 뒤에 둔다.
 LEGACY_VALUE_TABLES: Final = {

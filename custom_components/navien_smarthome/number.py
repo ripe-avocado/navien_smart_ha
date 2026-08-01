@@ -39,7 +39,7 @@ async def async_setup_entry(
 class AironeHumidityNumber(AironeEntity, NumberEntity):
     """제습 목표 습도(%)."""
 
-    _attr_name = "목표 습도"
+    _attr_name = "희망습도"
     _attr_icon = "mdi:water-percent"
     _attr_native_unit_of_measurement = "%"
     # 앱의 −/+ 버튼이 5씩 움직인다. 서버는 간격을 주지 않으므로 앱을 따른다.

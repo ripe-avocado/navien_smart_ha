@@ -14,6 +14,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -36,6 +37,7 @@ from .const import (
     AIRONE_TOPIC_FMT,
     AIRONE_UPDATE_INTERVAL_SECONDS,
     DOMAIN,
+    MIN_REFRESH_COOLDOWN_SECONDS,
     OUT_OF_SCOPE_REASONS,
     REPORT_WANTED_NOTES,
     REPORT_WANTED_SERVICE_CODES,
@@ -87,6 +89,21 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             name=DOMAIN,
             update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
             config_entry=entry,
+            # **밖에서 우리를 얼마나 자주 깨울 수 있는지의 하한.**
+            #
+            # HA 기본값은 10초다(`REQUEST_REFRESH_DEFAULT_COOLDOWN`). 그대로 두면
+            # `homeassistant.update_entity` 를 10초마다 부르는 자동화 하나가
+            # 계정 하나로 하루 8,640번 나비엔 서버를 두드린다. 비공식 클라이언트가
+            # 감당할 수도, 감당해서도 안 되는 양이다.
+            #
+            # `immediate=True` 는 기본값 그대로 둔다 — 첫 요청은 즉시 처리하고
+            # 뒤이어 몰려오는 것만 하나로 묶는다. 「지금 새로고침」은 계속 먹는다.
+            request_refresh_debouncer=Debouncer(
+                hass,
+                _LOGGER,
+                cooldown=MIN_REFRESH_COOLDOWN_SECONDS,
+                immediate=True,
+            ),
         )
         self.api = api
         self.home_seq = home_seq
@@ -254,6 +271,10 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         if self.update_interval != wanted:
             _LOGGER.debug("폴링 주기를 %s 로 바꿉니다", wanted)
             self.update_interval = wanted
+        # **하한도 같이 따라간다.** 밖에서 우리를 깨우는 속도가 우리 폴링 주기보다
+        # 빨라지면 하한이라 부를 수 없다. `Debouncer.cooldown` 은 다음 타이머를
+        # 잡을 때 읽으므로 여기서 바꿔도 안전하다.
+        self._debounced_refresh.cooldown = wanted.total_seconds()
 
     def _parse_airone(
         self, raw: dict[str, Any], previous: dict[str, AironeDevice]

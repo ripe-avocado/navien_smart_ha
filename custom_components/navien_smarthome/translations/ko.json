@@ -41,7 +41,7 @@
     },
     "select": {
       "airone_mode": {
-        "name": "운전 모드"
+        "name": "운전모드"
       },
       "airone_fan": {
         "name": "풍량"
