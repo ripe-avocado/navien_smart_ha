@@ -93,8 +93,13 @@ async def async_get_config_entry_diagnostics(
             ),
             # **폴링이 도는지 먼저 본다.** 이 값이 주기보다 훨씬 크면 값이 옛것인
             # 이유는 기기도 서버도 아니고 우리다.
+            # **`poll_attempts` 를 먼저 본다.** 성공 시각만으로는 「우리가
+            # 실패하는 것」과 「HA 가 안 부르는 것」이 같은 모양으로 보인다.
+            "poll_attempts": coordinator.poll_attempts,
             "last_poll_seconds_ago": coordinator.poll_age,
             "poll_failures": coordinator.poll_failures,
+            # 마지막 실패가 무엇이었나. 예외 이름과 메시지뿐이다.
+            "poll_last_error": coordinator.poll_last_error,
             # **HA 쪽에서 폴링을 꺼둘 수 있다.**
             #
             #   설정 → 기기 및 서비스 → 나비엔 스마트 → ⋮ → 시스템 옵션

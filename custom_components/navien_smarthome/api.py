@@ -322,6 +322,14 @@ class NavienSmartApi:
         except json.JSONDecodeError as err:
             raise NavienSmartError(f"{path} 응답이 JSON 이 아닙니다.") from err
 
+        # **JSON 이라고 다 객체는 아니다.** `null` · 배열 · 숫자도 통과한다.
+        # 그대로 `.get` 을 부르면 `AttributeError` 가 나는데, 그건 우리 예외가
+        # 아니라 실패 횟수에도 로그에도 안 남고 갱신만 조용히 멈춘다.
+        if not isinstance(payload, dict):
+            raise NavienSmartError(
+                f"{path} 응답이 객체가 아닙니다 ({type(payload).__name__})."
+            )
+
         code = payload.get("code")
         if code == CODE_SUCCESS:
             return payload

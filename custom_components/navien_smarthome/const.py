@@ -391,7 +391,10 @@ AIRONE_MODES_WITH_HUMIDITY: Final = frozenset({9, 10})
 AIRONE_HUMIDITY_TYPE: Final = 1
 AIRONE_HUMIDITY_REPORT_TYPE: Final = 3
 
-# 자동건조 진행률. **앱 코드에서 확인했다.**
+# 자동건조 진행률. **앱 코드에서 찾고 실기기로 확정했다.**
+#
+# > 기여자(moKorean, PR #15): 「실기기에서 자동 건조 진행도 잘 표시됨을
+# > 확인했습니다」 (2026-08-01)
 #
 #     do { ... } while (additionalDataStatusPrevious.getType() != 4);
 #     value = additionalDataStatus.getValue();
@@ -482,9 +485,9 @@ AIRONE_SENSOR_ALIASES: Final = {
 # `device_class` 는 HA 가 아이콘·히스토리 그래프·단위 변환에 쓴다. 라돈에는
 # HA 표준 device_class 가 없어 단위만 붙인다.
 AIRONE_SENSOR_KINDS: Final = {
-    "pm1Dot0": ("극초미세먼지", "㎍/㎥", "pm1"),
-    "pm2Dot5": ("초미세먼지", "㎍/㎥", "pm25"),
-    "pm10": ("미세먼지", "㎍/㎥", "pm10"),
+    "pm1Dot0": ("극초미세먼지", "\u00b5g/m\u00b3", "pm1"),
+    "pm2Dot5": ("초미세먼지", "\u00b5g/m\u00b3", "pm25"),
+    "pm10": ("미세먼지", "\u00b5g/m\u00b3", "pm10"),
     "co2": ("이산화탄소", "ppm", "carbon_dioxide"),
     "tvoc": ("휘발성유기화합물", "ppb", None),
     "radon": ("라돈", "Bq/㎥", None),

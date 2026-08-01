@@ -116,17 +116,52 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 보였다 — 폴링 쪽 시각이 없어서다.
         self.poll_stamp: float | None = None
         self.poll_failures = 0
+        # **`NavienSmartError` 만 세면 나머지가 통째로 안 보인다.** 이슈 #1 에서
+        # 폴링이 설치 직후 한 번만 돌고 멈췄는데 `poll_failures` 가 0 이었다.
+        # 우리 예외가 아닌 것(응답 모양이 달라 생긴 `TypeError` 같은)이 나면
+        # 카운터에도 진단에도 흔적이 없다. 종류를 가리지 않고 세고, 마지막
+        # 것을 남긴다 — **개인정보는 없다. 예외 이름과 메시지뿐이다.**
+        self.poll_last_error: str | None = None
+        # **「불렀는데 실패」와 「아예 안 부름」을 가른다.**
+        #
+        # 이슈 #1 에서 폴링이 설치 직후 한 번만 돌고 멈췄다. 실패 횟수는 0 이고,
+        # 제보자가 로그를 `navien` 으로 검색해 전부 줬는데 HA 가 갱신 실패 때
+        # 반드시 찍는 `Error fetching ... data` 가 **없었다.**
+        #
+        # 그러면 남는 것은 둘뿐이다 — 우리가 못 잡는 예외로 죽거나,
+        # **HA 가 다음 차례를 아예 안 잡거나.** 성공 시각만으로는 못 가린다.
+        # 시도 자체를 세면 한 줄로 갈린다.
+        #
+        #   시도가 늘어난다  → 부르고 있다. 우리가 실패하는 것이다
+        #   시도가 멈춰 있다 → HA 가 안 부른다. 예약 쪽 문제다
+        self.poll_attempts = 0
 
     # -- 수집 --------------------------------------------------------------
 
     async def _async_update_data(self) -> dict[str, NavienDevice]:
+        self.poll_attempts += 1
+        try:
+            return await self._async_collect()
+        except (NavienSmartAuthError, ConfigEntryAuthFailed, UpdateFailed):
+            raise
+        except Exception as err:
+            # **여기까지 오면 우리가 예상 못 한 것이다.** 그대로 올려보내면
+            # HA 는 다시 잡아주지만 우리 진단에는 아무것도 안 남는다.
+            self.poll_failures += 1
+            self.poll_last_error = f"{type(err).__name__}: {err}"
+            _LOGGER.exception("갱신 중 예상 못 한 오류가 났습니다")
+            raise UpdateFailed(self.poll_last_error) from err
+
+    async def _async_collect(self) -> dict[str, NavienDevice]:
         try:
             raw_devices = await self.api.async_get_devices(self.home_seq)
         except NavienSmartAuthError as err:
             self.poll_failures += 1
+            self.poll_last_error = f"인증 실패: {err}"
             raise ConfigEntryAuthFailed(str(err)) from err
         except NavienSmartError as err:
             self.poll_failures += 1
+            self.poll_last_error = f"기기목록 조회 실패: {err}"
             raise UpdateFailed(str(err)) from err
 
         previous = self.data or {}
@@ -138,6 +173,14 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         airone: dict[str, AironeDevice] = {}
 
         for raw in raw_devices:
+            # **항목이 dict 가 아닐 수 있다.** 그때 `.get` 을 부르면
+            # `AttributeError` 가 나고, 우리 예외가 아니라 갱신이 조용히 멈춘다.
+            if not isinstance(raw, dict):
+                _LOGGER.warning(
+                    "기기 목록에 예상 못 한 항목이 있어 건너뜁니다 (%s)",
+                    type(raw).__name__,
+                )
+                continue
             # 매트는 정수로 오는 것을 확인했다. 에어원도 그럴 거라 단정하지 않는다 —
             # 문자열로 오면 비교가 조용히 실패해 기기가 통째로 사라진다.
             service_code = _as_int(raw.get("serviceCode"))
@@ -192,6 +235,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         await self._async_update_air_sensors()
         self.poll_stamp = time.monotonic()
         self.poll_failures = 0
+        self.poll_last_error = None
         return devices
 
     def _tune_interval(self) -> None:
@@ -560,7 +604,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             return
         # **덮어쓰지 않는다.** 사계절 모델이 부분 응답을 보낸다 (`apply_reported`).
         device.apply_reported(reported)
-        self.async_set_updated_data(devices)
+        self._async_push_update(devices)
 
     @callback
     def _handle_airone_reported(self, device_id: str, reported: dict[str, Any]) -> None:
@@ -584,7 +628,34 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 기기가 실제로 올린 값이 왔으니 더 이상 복원값이 아니다.
         self.restored_devices.discard(device.device_id)
         self._async_remember_state()
-        self.async_set_updated_data(self.data or {})
+        self._async_push_update(self.data or {})
+
+    @callback
+    def _async_push_update(self, data: dict[str, NavienDevice]) -> None:
+        """MQTT 로 받은 상태를 엔티티에 알린다. **폴링 예약은 건드리지 않는다.**
+
+        전에는 `async_set_updated_data()` 를 썼는데 그게 폴링을 굶겼다.
+        HA 원본을 보면 그 함수가 이렇게 한다.
+
+            def async_set_updated_data(self, data):
+                self._async_unsub_refresh()        # 예약된 다음 폴링을 취소
+                self._debounced_refresh.async_cancel()
+                ...
+                if self._listeners:
+                    self._schedule_refresh()       # 지금부터 다시 세는 것
+
+        **메시지가 올 때마다 다음 폴링이 5분 뒤로 밀린다.** 에어원은 46초에
+        한 번꼴로 올라오므로 300초 타이머가 영영 안 터진다. 매트는 19시간에
+        여섯 번이라 멀쩡했다 — 에어원 사용자만 공기질이 멈춘 이유다 (#1 · #12 · #13).
+
+        `async_update_listeners()` 는 엔티티에 알리기만 하고 예약을 안 건드린다.
+        그것만 쓴다.
+        """
+        self.data = data
+        # MQTT 로 신선한 값이 왔으니 엔티티를 살려둔다. 예약만 안 건드릴 뿐
+        # 나머지는 `async_set_updated_data` 와 같게 한다.
+        self.last_update_success = True
+        self.async_update_listeners()
 
     def _async_remember_state(self) -> None:
         """마지막 상태를 남긴다. 실패해도 동작을 막지 않는다."""
