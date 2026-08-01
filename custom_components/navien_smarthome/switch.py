@@ -47,7 +47,21 @@ async def async_setup_entry(
 class NavienSmartPowerSwitch(NavienSmartEntity, SwitchEntity):
     """`operationMode` 0/1 로 전원을 끄고 켠다."""
 
-    _attr_translation_key = "power"
+    # **기기의 대표 엔티티다.** 이름을 두지 않으면 HA 가 기기 이름을 그대로 쓴다
+    # (`Entity.use_device_name` — "the single main feature of a device").
+    #
+    # 그래서 목록에서 **항상 맨 위**에 온다. 기기 페이지는 표시 이름을 사전순으로
+    # 정렬하는데, 한글은 `우(ㅇ)` 가 `좌(ㅈ)` 보다 앞이라 좌우 분리형에서
+    # `우측 → 전원 → 좌측` 이라는 이상한 순서가 나왔다.
+    #
+    # **자격이 있는가** — 전원은 어느 모델이든 기기당 하나다. `operationMode` 가
+    # `heater` 바깥에 있고, 좌/우를 아무리 만져도 그 값은 안 움직인다(실측).
+    # 좌우 난방 단계는 둘이라 이름을 유지한다. `tplink` 가 쓰는 기준과 같다 —
+    # 「기기당 하나면 기기 이름, 여럿이면 자기 이름」.
+    #
+    # `_attr_name` 이 `translation_key` 를 이긴다 (`Entity._name_internal` 첫 줄).
+    # 번역 항목은 에어원 전원이 계속 쓰므로 남겨둔다.
+    _attr_name = None
     _attr_icon = "mdi:power"
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: NavienDevice) -> None:
@@ -125,7 +139,10 @@ class AironePowerSwitch(AironeEntity, SwitchEntity):
     신형 규약만 다룬다 — 세대 판정을 두 곳에 두면 한쪽만 고치는 실수가 난다.
     """
 
-    _attr_translation_key = "power"
+    # 매트 전원과 같은 이유로 기기 대표다 (위 `NavienSmartPowerSwitch` 주석).
+    # 에어원도 전원은 기기당 하나이고, 운전모드·풍량·희망습도는 여럿이라
+    # 각자 이름을 유지한다.
+    _attr_name = None
     _attr_icon = "mdi:power"
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:

@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -135,6 +136,14 @@ class NavienSmartVolumeSelect(NavienSmartEntity, SelectEntity):
 
     _attr_icon = "mdi:volume-high"
     _attr_options = list(MAT_VOLUME_NAMES.values())
+    # **한 번 정하고 안 건드리는 값이라 「설정」으로 내린다.** 기기 페이지에서
+    # 줄 아래 칸으로 가고, 기본 「개요」 대시보드에서는 빠진다
+    # (프론트엔드 `computeDefaultViewStates` 가 `entity_category` 를 숨긴다).
+    #
+    # **조작 잠금에는 붙이지 않는다.** 아이 있는 집에서 매일 켜고 끄는 것이라
+    # 개요 화면에서 사라지면 안 된다 — v0.13.0 에서 읽기 전용 센서를 굳이
+    # 스위치로 승격시킨 이유가 그것이다.
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
