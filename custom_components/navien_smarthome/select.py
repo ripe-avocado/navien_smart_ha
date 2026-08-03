@@ -251,7 +251,20 @@ class NavienSmartLevelSelect(NavienSmartEntity, SelectEntity):
             level = self._levels[(self._attr_options or []).index(option)]
         except ValueError:
             return
-        # `level 0` 이면 `enable: false` 가 함께 간다 — `build_heater_desired` 가 처리한다.
+        control = device.active_control
+        off = control.off_value if control is not None else None
+        if off is not None and level <= off:
+            # **「운전 대기」는 그 구역을 끄는 것이다.** 온도형의 「꺼짐」과 같은
+            # 명령이라 같은 자리를 쓴다 (이슈 #16).
+            #
+            # **한쪽만 대기로 내리는 것은 종전과 똑같다** — `build_zone_off` 가
+            # 같은 `heater` 를 만든다. 달라지는 것은 **마지막 남은 구역**을 내릴
+            # 때뿐이고, 그때는 기기가 어차피 막으므로 이유를 알린다.
+            # (실기기 확인: 좌 0 인 상태에서 우를 0 으로 내리면 `0, 1` 로 남는다)
+            await self.coordinator.async_send(
+                device, device.build_zone_off([self._zone])
+            )
+            return
         heater = device.build_heater_desired({self._zone: level})
         await self.coordinator.async_send(device, {"heater": heater})
 

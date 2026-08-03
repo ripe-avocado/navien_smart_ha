@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -103,6 +104,35 @@ class HeatControl:
         if self.is_celsius:
             return 0.5
         return 1.0
+
+    @property
+    def off_value(self) -> float | None:
+        """구역 하나를 끌 때 보내는 값. **`rangeMin` 보다 한 칸 아래다.**
+
+        앱 원본 (`MateWifiModelControlViewModel.setTemperature`)
+
+            if (temp <= rangeMin - 1) temp = 0;      // 내부 표시용
+            ...
+            if (temp < rangeMin) temp = rangeMin - controlUnit;   // 실제 전송값
+
+        **0 을 보내는 게 아니다.** 0 은 앱이 화면에 「꺼짐」을 그리려고 쓰는 중간
+        값이고, 기기로 나가는 것은 `rangeMin - 간격` 이다.
+
+            단계형 1.0L (1~8)    1 - 1.0  = 0      ← 실측 검증됨
+            온도형 0.5C (28~50)  28 - 0.5 = 27.5
+            온수형 1.0C (28~45)  28 - 1.0 = 27.0
+
+        **단계형이 지금까지 맞았던 이유가 이것이다.** `level 0` 을 보내고 있었는데
+        그게 우연이 아니라 같은 규칙의 결과였다. 온도형만 이 계산을 안 하고
+        `enable: false` 만 보내서 기기가 무시했다 (이슈 #16).
+
+        `enable` 은 앱이 **구역을 끌 때 손대지 않는다** — `updateLeftMatSettingTemp`
+        가 `temperature.setSet()` 만 부른다. 우리는 단계형에서 함께 보내 검증된
+        형태라 그대로 두되, 값이 본체다.
+        """
+        if self.range_min is None or not self.is_known:
+            return None
+        return self.range_min - self.step
 
     @classmethod
     def parse(cls, raw: Any) -> HeatControl | None:
@@ -518,6 +548,70 @@ class NavienDevice:
         if isinstance(temperature, dict) and temperature.get("set") is not None:
             return float(temperature["set"])
         return None
+
+    def zone_is_off(self, zone: str) -> bool | None:
+        """이 구역이 꺼져 있나. **모르면 `None`** — 껐다고 단정하지 않는다."""
+        control = self.active_control
+        if control is None:
+            return None
+        off = control.off_value
+        setting = self.zone_setting(zone)
+        if off is None or setting is None:
+            return None
+        return setting <= off
+
+    def build_zone_off(self, zones: Iterable[str]) -> dict[str, Any]:
+        """구역을 끄는 desired 를 만든다.
+
+        **`enable: false` 만 보내면 기기가 무시한다** (이슈 #16, EME-520 에서 세 번
+        보내 세 번 무시됨). 값을 `off_value` 로 내려야 실제로 꺼진다.
+
+        **마지막 남은 구역은 끌 수 없다.** 기기가 막는다. 사장님 단계형 매트에서
+        실기기로 확인했다 — 좌측이 0 인 상태에서 우측을 0 으로 내리면 명령이 안
+        먹고 `0, 1` 로 남는다.
+
+        **전원을 대신 꺼주지 않는다.** 앱도 그렇게 하지 않는다 — 막고 알린다.
+
+            if (heatType != 2 && heatType != 1) return true;   // 진행
+            CustomToast.show(mate_dual_temp_batch_control_one_side_off);
+            return false;                                       // 막는다
+
+        사용자가 시킨 것은 「구역 하나 끄기」인데 기기 전원을 끄는 것은 **시키지
+        않은 일**이다. 앱이 안내하는 대로 전원 스위치를 쓰라고 알린다.
+        `powerCtrl` 게이트를 걷어내서 이제 모든 매트에 그 스위치가 있다.
+        """
+        control = self.active_control
+        if control is None or not control.is_known:
+            raise ValueError(
+                f"제어 축을 모르는 기기입니다 (unit={control.unit if control else None})"
+            )
+        off = control.off_value
+        if off is None:
+            raise ValueError("이 기기의 꺼짐 값을 계산할 수 없습니다 (rangeMin 없음)")
+
+        target = set(zones)
+        # 이번에 끄지 않는 구역 중 **켜져 있다고 확인된 것**이 하나라도 있나.
+        # 모르면(`None`) 켜져 있는 쪽으로 본다 — 막아서 못 쓰게 하는 것보다
+        # 보내보고 기기 판단에 맡기는 편이 낫다.
+        stays_on = any(
+            self.zone_is_off(zone) is not True
+            for zone in self.zones
+            if zone not in target
+        )
+        if not stays_on:
+            # 앱 문구 그대로 (`strings.xml`).
+            raise ValueError(
+                "이미 다른 편측이 운전대기 상태입니다. "
+                "난방을 끄시려면 매트 전원을 종료해 주세요."
+                if len(self.zones) > 1
+                else "난방을 끄시려면 매트 전원을 종료해 주세요."
+            )
+
+        heater = self.build_heater_desired(
+            changes={zone: off for zone in target},
+            enables={zone: False for zone in target},
+        )
+        return {"heater": heater}
 
     def zone_current(self, zone: str) -> float | None:
         """현재값. 온도형만 온다. 단계형은 `None`."""

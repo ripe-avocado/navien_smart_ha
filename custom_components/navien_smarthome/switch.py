@@ -1,6 +1,14 @@
 """전원 스위치.
 
-`functions.powerCtrl` 이 없는 모델에는 만들지 않는다.
+**매트에는 언제나 만든다.** `functions.powerCtrl` 로 가르지 않는다 — 그 규칙은
+근거가 없었고, 그 때문에 EME-520 사용자는 기기를 끌 방법이 아예 없었다 (이슈 #16).
+
+앱은 그 필드를 **읽지도 않는다.** `ResponseDataSource.getPowerCtrl()` 을 부르는
+곳이 앱 전체에 0건이다 (APK 2.10.4 전수 확인). 파싱만 하고 버리는 값이다.
+
+전원은 `operationMode` 로 간다. 이슈 #16 제보자의 EME-520 은 `powerCtrl: false`
+인데도 상태 기록에 `operationMode` 가 1↔0 으로 네 번 오갔고, 우리가 보낸
+`operationMode: 1` 명령 다섯 건이 전부 반영됐다.
 """
 
 from __future__ import annotations
@@ -25,10 +33,11 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
+    # `has_power_ctrl` 로 거르지 않는다 (모듈 설명 참조). 진단에는 그대로 남겨
+    # 두었으니 서버가 무엇을 알려주는지는 계속 볼 수 있다.
     entities: list[SwitchEntity] = [
         NavienSmartPowerSwitch(coordinator, device)
         for device in (coordinator.data or {}).values()
-        if device.has_power_ctrl
     ]
     # **서버가 잠금 기능을 알려줄 때만 만든다.** 앱은 모델 번호 표로 가르는데
     # (`MateInfoData` 의 `case 257: supportLock = false`) 표에 실린 모델이 다섯

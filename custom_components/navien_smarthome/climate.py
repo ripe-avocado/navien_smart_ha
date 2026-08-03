@@ -234,8 +234,7 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
                 device, {"operationMode": MODE_HEAT, "heater": heater}
             )
             return
-        # 구역만 끈다. 기기 전원은 별도 스위치가 담당한다.
-        heater = device.build_heater_desired(
-            enables={zone: False for zone in zones}
-        )
-        await self.coordinator.async_send(device, {"heater": heater})
+        # **`enable: false` 만으로는 안 꺼진다** (이슈 #16). 값을 `off_value` 까지
+        # 내려야 기기가 받는다. 남는 구역이 없으면 전원 끄기로 돌아간다 —
+        # 판단은 `build_zone_off` 안에 있다.
+        await self.coordinator.async_send(device, device.build_zone_off(zones))
