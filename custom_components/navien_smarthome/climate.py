@@ -225,14 +225,13 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
             return
         zones = self._target_zones
         if hvac_mode is not HVACMode.OFF:
-            # 난방이든 냉방이든 켜는 방법은 같다 — `operationMode` 1 + 구역 `enable`.
-            # 난방·냉방을 가르는 것은 `season` 이고 그건 앱에서 고른다.
-            heater = device.build_heater_desired(
-                enables={zone: True for zone in zones}
-            )
-            await self.coordinator.async_send(
-                device, {"operationMode": MODE_HEAT, "heater": heater}
-            )
+            # 난방이든 냉방이든 켜는 방법은 같다. 난방·냉방을 가르는 것은 `season`
+            # 이고 그건 앱에서 고른다.
+            #
+            # **꺼져 있던 구역은 값도 함께 올려야 한다** (이슈 #16). 예전에는
+            # `enable: true` 만 보내고 온도는 27.5(=꺼짐) 그대로 다시 보내서,
+            # 기기 전원만 켜지고 그 구역은 꺼진 채로 남았다.
+            await self.coordinator.async_send(device, device.build_zone_on(zones))
             return
         # **`enable: false` 만으로는 안 꺼진다** (이슈 #16). 값을 `off_value` 까지
         # 내려야 기기가 받는다. 남는 구역이 없으면 전원 끄기로 돌아간다 —

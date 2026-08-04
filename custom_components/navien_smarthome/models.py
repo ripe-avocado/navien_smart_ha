@@ -613,6 +613,42 @@ class NavienDevice:
         )
         return {"heater": heater}
 
+    def build_zone_on(self, zones: Iterable[str]) -> dict[str, Any]:
+        """구역을 켜는 desired 전체를 만든다.
+
+        **끄는 쪽과 정확히 대칭이다.** 끌 때 값을 안 내려서 안 꺼졌던 것처럼,
+        켤 때 값을 안 올리면 안 켜진다 (이슈 #16, 제보자 7번).
+
+            보내던 것:  operationMode 1 + 온도 27.5   → 전원만 켜지고 구역은 꺼진 채
+            보내야 할 것: operationMode 1 + 온도 28     → 실제로 켜진다
+
+        `27.5` 는 그 구역이 꺼져 있다는 뜻이므로, 그대로 다시 보내면 「꺼진 채로
+        있어라」가 된다. 앱에서 꺼짐 상태에서 `+` 를 누르면 `rangeMin` 이 되는
+        것과 같게 맞춘다.
+
+        **꺼져 있지 않은 구역은 값을 건드리지 않는다.** 사용자가 33도로 맞춰둔
+        구역을 켠다고 28도로 되돌리면 안 된다.
+        """
+        control = self.active_control
+        if control is None or not control.is_known:
+            raise ValueError(
+                f"제어 축을 모르는 기기입니다 (unit={control.unit if control else None})"
+            )
+        target = set(zones)
+        changes: dict[str, float] = {}
+        floor = control.range_min
+        if floor is not None:
+            for zone in target:
+                # 꺼져 있는 구역만 최저값으로 올린다. 모르면(`None`) 건드리지 않는다 —
+                # 사용자가 맞춰둔 값을 덮어쓰는 쪽이 더 나쁘다.
+                if self.zone_is_off(zone) is True:
+                    changes[zone] = floor
+        heater = self.build_heater_desired(
+            changes=changes,
+            enables={zone: True for zone in target},
+        )
+        return {"operationMode": MODE_HEAT, "heater": heater}
+
     def zone_current(self, zone: str) -> float | None:
         """현재값. 온도형만 온다. 단계형은 `None`."""
         value = self._zone_current_raw(zone)
