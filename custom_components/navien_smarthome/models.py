@@ -550,7 +550,35 @@ class NavienDevice:
         return None
 
     def zone_is_off(self, zone: str) -> bool | None:
-        """이 구역이 꺼져 있나. **모르면 `None`** — 껐다고 단정하지 않는다."""
+        """이 구역이 꺼져 있나. **모르면 `None`** — 껐다고 단정하지 않는다.
+
+        **`enable` 을 먼저 본다. 앱이 그렇게 한다.**
+
+        `MateInfoData.setHeatType()` 은 켜짐/꺼짐을 오직 `enable` 로 가른다.
+
+            if (left.enable == TRUE  && right.enable == TRUE)  heatType = 4;
+            if (left.enable == TRUE  && right.enable == FALSE) heatType = 2;
+            if (left.enable == FALSE && right.enable == TRUE)  heatType = 3;
+            else                                              heatType = 1;
+
+        `setMatLeftTemp()` 는 한 걸음 더 간다 — **꺼져 있으면 기기가 보낸 온도를
+        버리고 0 으로 덮는다.**
+
+            if (leftMatEnable) leftMatSettingTemp = set;
+            else               leftMatSettingTemp = 0;      // 화면에 「꺼짐」
+
+        그 분기가 있다는 것은 **꺼진 구역이 정상 온도를 보고할 수 있다**는 뜻이다.
+        그래서 앱은 꺼짐 판단에 온도를 쓰지 않는다.
+
+        v0.17.1 까지 우리는 온도로 판단했다. 같은 것을 `hvac_mode` 는 `enable` 로,
+        여기서는 온도로 봐서 **두 곳이 어긋나 있었다.** 앱 기준으로 맞춘다.
+
+        `enable` 이 안 오면 값으로 판단한다 — 단계형은 `level 0` 과 `enable false`
+        가 함께 움직이므로 어느 쪽으로 봐도 답이 같다(실기기 확인).
+        """
+        enabled = self.zone_enabled(zone)
+        if enabled is not None:
+            return not enabled
         control = self.active_control
         if control is None:
             return None
@@ -637,11 +665,26 @@ class NavienDevice:
         target = set(zones)
         changes: dict[str, float] = {}
         floor = control.range_min
+        # **기기가 아직 아무 상태도 안 보냈으면 여기서 값을 지어내지 않는다.**
+        # `build_heater_desired` 가 「전원 스위치로는 켤 수 있습니다」 안내를
+        # 띄우게 그대로 둔다 — 그 편이 사용자가 할 수 있는 것을 알려준다.
+        reported_heater = self.reported.get("heater")
+        known = reported_heater if isinstance(reported_heater, dict) else {}
         if floor is not None:
             for zone in target:
-                # 꺼져 있는 구역만 최저값으로 올린다. 모르면(`None`) 건드리지 않는다 —
-                # 사용자가 맞춰둔 값을 덮어쓰는 쪽이 더 나쁘다.
-                if self.zone_is_off(zone) is True:
+                if zone not in known:
+                    continue
+                # **켜라고 한 구역은 반드시 명령에 넣는다.**
+                #
+                # `build_heater_desired` 는 값을 모르는 구역을 통째로 건너뛴다.
+                # 그래서 기기가 그 구역 온도를 안 보내주면 「켜줘」를 눌러도
+                # 명령에 그 구역이 없고, 전원만 켜진 채 구역은 그대로 남았다
+                # (이슈 #16 의 7번 후보). 켜라는 지시를 받았으면 최저값이라도
+                # 실어 보내는 것이 맞다.
+                #
+                # **켜져 있다고 확인된 구역만 값을 안 건드린다** — 33도로
+                # 맞춰둔 쪽을 28로 되돌리면 안 된다.
+                if self.zone_is_off(zone) is not False:
                     changes[zone] = floor
         heater = self.build_heater_desired(
             changes=changes,
