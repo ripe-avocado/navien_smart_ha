@@ -51,7 +51,7 @@ async def async_setup_entry(
                 entities.append(AironeMonitorSensor(coordinator, airone, monitor, kind))
             else:
                 entities.append(AironeAirSensor(coordinator, airone, kind))
-        # 개수는 메타데이터에서 온다. 사용률은 상태에서 오지만, 엔티티는 MQTT 가
+        # 개수는 메타데이터에서 온다. 잔량은 상태에서 오지만, 엔티티는 MQTT 가
         # 붙기 전에 만들어지므로 상태로 세면 하나도 안 생긴다.
         entities.extend(
             AironeFilterSensor(coordinator, airone, index)
@@ -314,7 +314,12 @@ class AironeLegacySensor(AironeEntity, SensorEntity):
 
 
 class AironeFilterSensor(AironeEntity, SensorEntity):
-    """필터 사용률(%). 실외기가 알려준 필터마다 하나씩."""
+    """필터 **잔량**(%). 실외기가 알려준 필터마다 하나씩.
+
+    **필드 이름과 뜻이 반대다.** 값은 `odu.filter[i].usage.percent` 에서 오고
+    이름만 보면 「쓴 만큼」 같지만 남은 수명이다 — 87 이면 87% 남았고 13% 썼다.
+    실기기에서 나비엔 앱 표시와 대조해 확인했다.
+    """
 
     _attr_icon = "mdi:air-filter"
     _attr_native_unit_of_measurement = "%"
@@ -331,7 +336,7 @@ class AironeFilterSensor(AironeEntity, SensorEntity):
         self._attr_unique_id = f"{device.device_id}_filter_{index}"
         # 필터 `type` 의 뜻이 확인되지 않았다. 이름에 종류를 적지 않고 번호만 쓴다.
         count = len(device.filter_types)
-        self._attr_name = "필터 사용률" if count == 1 else f"필터 {index + 1} 사용률"
+        self._attr_name = "필터 잔량" if count == 1 else f"필터 {index + 1} 잔량"
 
     @property
     def _raw(self) -> dict[str, Any] | None:

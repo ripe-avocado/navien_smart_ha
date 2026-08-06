@@ -325,7 +325,7 @@ class AironeDevice:
     physical_device_id: str
     zone_id: int | None
     modes: tuple[AironeMode, ...]
-    # 필터 **개수**는 메타데이터에서 온다. 사용률은 상태에서 오는데, 엔티티는
+    # 필터 **개수**는 메타데이터에서 온다. 잔량은 상태에서 오는데, 엔티티는
     # MQTT 가 붙기 전에 만들어지므로 개수를 상태에서 읽으면 센서가 하나도 안 생긴다.
     filter_types: tuple[int | None, ...]
     # 공기모니터(에어모니터). 별도 기기로 등록되며 공기질 센서가 여기 붙어 있다.
@@ -769,6 +769,10 @@ class AironeDevice:
 
         상태가 아직 안 왔으면 `percent` 가 `None` 인 자리를 돌려준다 —
         길이가 흔들리면 엔티티와 자리가 어긋난다.
+
+        **`percent` 는 남은 수명이다.** 출처가 `usage.percent` 라 이름은 「쓴 만큼」
+        처럼 읽히지만 값은 반대다 — 87 이면 87% 남았고 13% 썼다. 실기기에서 나비엔
+        앱 표시와 대조해 확인했다. 키 이름은 그대로 둔다(진단 형식이 바뀐다).
         """
         reported = [
             item for item in self._odu.get("filter") or [] if isinstance(item, dict)
