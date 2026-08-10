@@ -280,6 +280,17 @@ HA 화면이 멈춰 보입니다.
 
 ---
 
+## 시험
+
+```bash
+python3 tests/run.py
+```
+
+**Home Assistant 를 설치하지 않아도 돌아갑니다.** 파이썬만 있으면 됩니다.
+자세한 것은 [`tests/README.md`](tests/README.md) 를 봐 주세요.
+
+---
+
 ## 개발자용 CLI
 
 `tools/navien_cli.py` — HA 없이 서버 응답을 직접 확인합니다. 파이썬 표준 라이브러리만
