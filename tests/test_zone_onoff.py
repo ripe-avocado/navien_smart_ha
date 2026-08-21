@@ -113,6 +113,45 @@ r.ok("전원" in guide and "스위치" in guide, "상태가 없으면 전원 스
 r.ok("heater" in blank.build_zone_off(["left"]), "끄기는 상태가 없어도 보낼 수 있다")
 
 
+r.section("전원이 꺼져 있으면 enable 을 믿지 않는다 (이슈 #19)")
+
+# `enable` 은 「꺼진 상태로 설정됐는가」가 아니라 **「지금 난방 중인가」**다.
+# 전원을 끄면 맞춰둔 값과 무관하게 전부 false 가 된다. 제보자 기록 그대로.
+#
+#   opMode 1   left {28.0, T}   right {27.5, F}
+#   opMode 0   left {28.0, F}   right {27.5, F}   ← 전원 끔: 좌도 F
+#
+# 이걸 안 가리면 33도로 맞춰둔 구역까지 「꺼짐」으로 읽고 켤 때 최저값으로
+# 되돌린다. v0.17.2 가 그랬다.
+sleeping = make_mat(**TEMP, capacity=2, zones={"left": 33.0, "right": 27.5})
+sleeping.apply_reported(
+    {
+        "operationMode": 0,
+        "heater": {
+            "left": {"enable": False, "temperature": {"set": 33.0}},
+            "right": {"enable": False, "temperature": {"set": 27.5}},
+        },
+    }
+)
+r.ok(sleeping.is_on is False, "기기 전원이 꺼져 있다")
+r.ok(sleeping.zone_is_off("left") is False, "33도로 맞춰둔 좌측은 꺼진 게 아니다")
+r.ok(sleeping.zone_is_off("right") is True, "꺼짐값인 우측은 꺼진 것이다")
+r.ok(
+    sleeping.build_zone_on(["left"])["heater"]["left"]["temperature"]["set"] == 33.0,
+    "켤 때 맞춰둔 33도가 살아남는다",
+)
+
+# 전원이 켜져 있으면 enable 이 우선이다 — 이슈 #16 에서 맞춘 그대로.
+running = make_mat(**TEMP, capacity=2, zones={"left": 33.0, "right": 30.0},
+                   enables={"left": False})
+r.ok(running.is_on is True, "기기 전원이 켜져 있다")
+r.ok(running.zone_is_off("left") is True, "전원이 켜져 있으면 enable 을 믿는다")
+r.ok(
+    running.build_zone_on(["left"])["heater"]["left"]["temperature"]["set"] == 28,
+    "그때는 최저값으로 올려 켠다",
+)
+
+
 r.section("마지막 남은 구역은 못 끈다 — 막고 알린다")
 
 half = make_mat(**TEMP, capacity=2, zones={"left": 27.5, "right": 30.0})

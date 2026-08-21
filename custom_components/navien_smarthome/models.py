@@ -573,12 +573,28 @@ class NavienDevice:
         v0.17.1 까지 우리는 온도로 판단했다. 같은 것을 `hvac_mode` 는 `enable` 로,
         여기서는 온도로 봐서 **두 곳이 어긋나 있었다.** 앱 기준으로 맞춘다.
 
-        `enable` 이 안 오면 값으로 판단한다 — 단계형은 `level 0` 과 `enable false`
+        **다만 `enable` 은 기기 전원이 켜져 있을 때만 쓴다.**
+
+        `enable` 이 뜻하는 것은 「이 구역이 꺼진 상태로 설정됐는가」가 아니라
+        **「지금 난방 중인가」**다. 전원을 끄면 맞춰둔 값과 무관하게 전부 `false`
+        가 된다 — 이슈 #19 제보자의 상태 기록에 그대로 찍혔다.
+
+            opMode 1   left {28.0, enable T}   right {27.5, enable F}
+            opMode 0   left {28.0, enable F}   right {27.5, enable F}   ← 전원 끔
+            opMode 1   left {28.0, enable F}   right {28.0, enable F}   ← 켠 직후
+            opMode 1   left {28.0, enable T}   right {28.0, enable T}   ← 1.3초 뒤
+
+        v0.17.2 는 이것을 안 가려서, 전원이 꺼져 있으면 **33도로 맞춰둔 구역까지
+        「꺼짐」으로 읽고** 켤 때 최저값으로 되돌렸다. 전원이 꺼져 있을 때는
+        값으로 판단해야 사용자가 맞춰둔 설정이 살아남는다.
+
+        `enable` 이 안 와도 값으로 판단한다 — 단계형은 `level 0` 과 `enable false`
         가 함께 움직이므로 어느 쪽으로 봐도 답이 같다(실기기 확인).
         """
-        enabled = self.zone_enabled(zone)
-        if enabled is not None:
-            return not enabled
+        if self.is_on:
+            enabled = self.zone_enabled(zone)
+            if enabled is not None:
+                return not enabled
         control = self.active_control
         if control is None:
             return None
