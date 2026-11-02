@@ -538,10 +538,21 @@ def airone_mode_label(mode: int, option: int) -> str:
 
 # --- 제어 축 (heatControl.unit) -------------------------------------------
 
-# dex 전수 검색 결과 값은 이 둘뿐이다. `<간격><축>` 형식.
+# `<간격><축>` 형식. dex 에는 앞의 둘만 있었고, `1.0C` 는 서버가 온수매트
+# (EQM-580, 이슈 #25)에 내려준 값이다. 앱은 단위 문자열을 표로 갈라 쓰지 않는다 —
+# 앞 숫자를 떼어 간격으로 쓰고(`MateInfoData` 의 `unit.substring(0, len - 1)`),
+# 단계형인지는 상태에 `level` 이 오는지로 가른다. 그래서 `1.0C` 는 1도 간격
+# 온도형이다. 제보 상태에도 `temperature.set` 이 왔다.
 UNIT_LEVEL: Final = "1.0L"  # heater.*.level.set — 정수 단계
 UNIT_CELSIUS: Final = "0.5C"  # heater.*.temperature.set — 0.5도 간격
-KNOWN_UNITS: Final = (UNIT_LEVEL, UNIT_CELSIUS)
+UNIT_CELSIUS_WHOLE: Final = "1.0C"  # heater.*.temperature.set — 1도 간격
+CELSIUS_STEPS: Final = {UNIT_CELSIUS: 0.5, UNIT_CELSIUS_WHOLE: 1.0}
+KNOWN_UNITS: Final = (UNIT_LEVEL, UNIT_CELSIUS, UNIT_CELSIUS_WHOLE)
+
+# 앱이 「2024년 이후 모델」로 보는 매트 `modelCode` (`MateInfoData.setModelCodeAndFunction`).
+# 앱은 이 모델에 보내는 **모든 제어 명령**에 `beep: true` 를 싣고, 기기는 그때만
+# 조작음을 낸다 (이슈 #23). 구형에는 싣지 않는다 — 앱이 안 싣는 것을 보내지 않는다.
+MODELS_AFTER_2024: Final = frozenset({10, 17, 18, 259, 260, 261, 262, 514, 530})
 
 # --- operationMode (KDMode.WIFI 맵) ---------------------------------------
 

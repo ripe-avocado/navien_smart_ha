@@ -378,8 +378,8 @@ class NavienSmartApi:
     ) -> None:
         """`desired` 를 shadow 로 중계한다.
 
-        `event.modelCode` 는 모든 명령에 붙는다. `beep` 는 붙이지 않는다 —
-        앱은 2024년 이후 모델에만 붙이고, 없어도 동작하는 것을 실측으로 확인했다.
+        `event.modelCode` 는 모든 명령에 붙는다. `beep` 는 여기서 붙이지 않는다 —
+        조작 명령에만 실어야 해서 `coordinator.async_send` 가 고른다.
         """
         session = self._require_session()
         device_seq = device["deviceSeq"]

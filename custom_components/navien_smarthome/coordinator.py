@@ -38,6 +38,7 @@ from .const import (
     AIRONE_UPDATE_INTERVAL_SECONDS,
     DOMAIN,
     MIN_REFRESH_COOLDOWN_SECONDS,
+    MODELS_AFTER_2024,
     OUT_OF_SCOPE_REASONS,
     REPORT_WANTED_NOTES,
     REPORT_WANTED_SERVICE_CODES,
@@ -845,6 +846,10 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         # 무엇을 보냈는지 남긴다. 냉방은 「보낸 값이 그대로 돌아오는가」를 봐야
         # 닫히는 구간이라 이 기록이 근거가 된다.
         device.note_command(desired)
+        # 앱과 같이 2024년 이후 모델에만 싣는다 (이슈 #23). 빈 초기 요청에는 싣지
+        # 않는다 — HA 가 시작할 때마다 매트가 울린다.
+        if int(device.model_code) in MODELS_AFTER_2024:
+            desired = {**desired, "beep": True}
         try:
             await self.api.async_control(self.home_seq, device.raw, desired)
         except NavienSmartAuthError as err:

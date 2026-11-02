@@ -17,6 +17,7 @@ from typing import Any
 
 from .const import (
     CAPACITY_DOUBLE,
+    CELSIUS_STEPS,
     MAT_ERROR_NAMES,
     MAT_VOLUME_NAMES,
     MODE_HEAT,
@@ -25,7 +26,6 @@ from .const import (
     SEASON_NAMES,
     SEASON_SUMMER,
     SERVICE_NAMES,
-    UNIT_CELSIUS,
     UNIT_LEVEL,
     ZONE_LEFT,
     ZONE_RIGHT,
@@ -92,7 +92,7 @@ class HeatControl:
 
     @property
     def is_celsius(self) -> bool:
-        return self.unit == UNIT_CELSIUS
+        return self.unit in CELSIUS_STEPS
 
     @property
     def is_known(self) -> bool:
@@ -102,7 +102,7 @@ class HeatControl:
     def step(self) -> float:
         """`<간격><축>` 인코딩의 앞쪽 숫자."""
         if self.is_celsius:
-            return 0.5
+            return CELSIUS_STEPS[self.unit]
         return 1.0
 
     @property

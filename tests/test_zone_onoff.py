@@ -52,11 +52,9 @@ r.ok(temp.heat_control.off_value == 27.5, f"온도형 28 - 0.5 = {temp.heat_cont
 level = make_mat(**LEVEL, capacity=2, zones={"left": 3, "right": 2})
 r.ok(level.heat_control.off_value == 0, f"단계형 1 - 1 = {level.heat_control.off_value}")
 
-# 축을 모르면 값을 지어내지 않는다.
 water = make_mat(unit="1.0C", range_min=28, range_max=45, capacity=2,
                  zones={"left": 33.0, "right": 31.0})
-r.ok(not water.heat_control.is_known, "1.0C 는 아직 확인 안 된 축이다")
-r.ok(water.heat_control.off_value is None, "모르는 축은 꺼짐 값을 안 만든다")
+r.ok(water.heat_control.off_value == 27.0, f"온수형 28 - 1.0 = {water.heat_control.off_value}")
 
 
 r.section("한쪽 끄기 — 값을 내려 보낸다")

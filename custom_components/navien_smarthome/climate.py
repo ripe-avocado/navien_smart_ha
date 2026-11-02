@@ -1,4 +1,4 @@
-"""온도형 매트의 온도조절기 (`heatControl.unit == "0.5C"`).
+"""온도형 매트의 온도조절기 (`heatControl.unit` 이 `0.5C` · `1.0C`).
 
 온도형은 `temperature.current` 를 함께 보내주므로 `climate` 가 맞다 — 서모스탯
 카드의 현재 온도 칸이 채워진다.
