@@ -89,10 +89,35 @@ SERVICE_NAMES: Final = {
 
 # MQTT 구독 토픽 접두사. 앱의 `HomeViewModel` 이 `/{접두사}/#` 로 구독한다 —
 # `smarttok`(보일러) `mate` `airone` `scada` `homeauto` 다섯 개가 전부다.
-# 매트는 실측 확인됨. 보일러는 지원하지 않으므로 넣지 않는다.
+# 매트는 실측 확인됨. 보일러는 엔티티를 만들지 않으므로 여기 넣지 않고,
+# 상태 수집(`BOILER_PREFIX`)이 따로 붙인다.
 #
 # 에어원 **제어**는 이 체계가 아니라 `AIRONE_TOPIC_FMT` 를 쓴다. 구독만 여기다.
 TOPIC_PREFIX: Final = {SERVICE_MATE: "mate", SERVICE_AIRONE: "airone"}
+
+# --- 보일러 상태 수집 -----------------------------------------------------
+#
+# **엔티티를 만들지 않는다.** 응답이 우리에게 오는지, 어떤 모양인지를 진단 파일에
+# 담아 지원 여부를 판단하려는 것이다. 제보자에게 도구를 돌려 달라고 할 수 없어서
+# 통합이 직접 묻는다.
+#
+# 앱이 보일러 화면을 열 때와 같은 **읽기 요청 두 개만** 보낸다 — 기능 목록
+# (`status/start`), 현재 상태(`status`). 설정은 바뀌지 않는다. 형식은 APK 로
+# 확인했다 (`BoilerConstants.boilerMqttPayload`, `HomeViewModel.getDeviceStart`).
+#
+# 봉투는 modelCode 로만 갈린다. 각방(120 · 011)과 도트(001)는 모양이 달라 묻지 않는다.
+BOILER_PREFIX: Final = "smarttok"
+BOILER_MGPP_MODELS: Final = frozenset({"20"})  # NR-6x — protocolVersion·command·deviceType 실림
+BOILER_NR35_MODELS: Final = frozenset({"002", "003"})  # NR-35/40D — 그 셋이 없다
+# (요청, 응답, command)
+BOILER_REQ_START: Final = ("status/start", "res/start", 16777217)
+BOILER_REQ_STATUS: Final = ("status", "res", 16777219)
+# 앱은 start 응답(기능 목록)을 받은 뒤 status 를 보낸다. 우리는 응답을 기다리지
+# 않고 이만큼 쉰 뒤 보낸다 — 응답이 안 오는 경우도 기록해야 하기 때문이다.
+BOILER_STATUS_DELAY_SECONDS: Final = 8
+# 기기당 남길 수신 메시지 수. 요청 응답 두 개 뒤에도 기기가 스스로 올리는지
+# 보려면 몇 개 더 남아야 한다.
+BOILER_KEEP_MESSAGES: Final = 10
 
 # --- 에어원 (환기청정) ----------------------------------------------------
 #

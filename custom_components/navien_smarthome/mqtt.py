@@ -27,6 +27,7 @@ from homeassistant.util.ssl import get_default_context
 
 from .api import AwsCredentials
 from .const import (
+    BOILER_PREFIX,
     IOT_ENDPOINT,
     IOT_REGION,
     IOT_SERVICE,
@@ -277,6 +278,7 @@ class NavienSmartMqtt:
         on_reported: Callable[[str, dict[str, Any]], None],
         on_subscribed: Callable[[], Awaitable[None]] | None = None,
         on_airone_reported: Callable[[str, dict[str, Any]], None] | None = None,
+        on_boiler_message: Callable[[str, Any], None] | None = None,
     ) -> None:
         self._hass = hass
         # 수신·폐기 집계. 개인정보는 없다 — 개수와 키 이름뿐이다.
@@ -287,6 +289,7 @@ class NavienSmartMqtt:
         self._credentials_provider = credentials_provider
         self._on_reported = on_reported
         self._on_airone_reported = on_airone_reported
+        self._on_boiler_message = on_boiler_message
         # 구독이 붙은 뒤에 초기 상태를 요청해야 한다. 순서가 뒤바뀌면 응답을 놓친다.
         self._on_subscribed = on_subscribed
         self._client_id = ""
@@ -440,6 +443,18 @@ class NavienSmartMqtt:
         if f"/{AIRONE_PREFIX}/" in message.topic:
             _bump(self.stats, "airone_received")
             self._handle_airone_message(message)
+            return
+        if f"/{BOILER_PREFIX}/" in message.topic:
+            # 보일러는 해석하지 않는다. 모양을 모르므로 받은 그대로 넘겨 진단에 담는다.
+            _bump(self.stats, "boiler_received")
+            if self._on_boiler_message is not None:
+                try:
+                    body: Any = json.loads(message.payload)
+                except (TypeError, ValueError):
+                    body = repr(message.payload[:500])
+                self._hass.loop.call_soon_threadsafe(
+                    self._on_boiler_message, message.topic, body
+                )
             return
 
         _bump(self.stats, "mate_received")

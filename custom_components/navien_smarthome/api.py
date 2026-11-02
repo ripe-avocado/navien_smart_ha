@@ -28,6 +28,7 @@ from .const import (
     LEGACY_CONTROLLER_TO_REQUEST,
     LEGACY_RUNNING_TO_REQUEST,
     API_URL,
+    BOILER_MGPP_MODELS,
     CODE_NOT_AUTHORIZED,
     CODE_SUCCESS,
     CODE_TOKEN_EXPIRED,
@@ -510,6 +511,55 @@ class NavienSmartApi:
             params={"homeSeq": home_seq, "userSeq": session.user_seq},
             raw_body=raw,
         )
+
+    async def async_boiler_request(
+        self,
+        home_seq: int,
+        device: dict[str, Any],
+        client_id: str,
+        request: tuple[str, str, int],
+    ) -> dict[str, Any]:
+        """보일러 상태 요청을 중계한다. **읽기 요청만 다룬다** — `mode`·`param` 이 비어 있다.
+
+        봉투는 앱 Gson 출력과 같다 (`GetStatusData.RequestControl` /
+        `RequestControlNR35D`). 대문자 `ID` 다 — 에어원의 `clientId` 와 다르다.
+        `deviceId` 앞 12자가 MAC, 뒤 4자가 `additionalValue` 다.
+
+        보낸 본문을 돌려준다. 진단에 남겨 형식이 맞았는지 대조한다.
+        """
+        session = self._require_session()
+        code = device["modelCode"]
+        device_id = device["deviceId"]
+        request_name, response_name, command = request
+        now = str(int(time.time() * 1000))
+        inner: dict[str, Any] = {
+            "macAddress": device_id[:12],
+            "registerAt": now,
+            "additionalValue": device_id[12:16],
+            "param": [],
+        }
+        payload: dict[str, Any] = {
+            "sessionID": now,
+            "clientID": f"mobile-{client_id}",
+            "requestTopic": f"cmd/{code}/roomcon-{device_id[:12]}/{request_name}",
+            "responseTopic": (
+                f"cmd/{code}/{device.get('mqttTopicKey')}/mobile-{client_id}/{response_name}"
+            ),
+            "request": inner,
+        }
+        if code in BOILER_MGPP_MODELS:
+            payload = {"protocolVersion": 1, **payload}
+            inner.update(paramStr="", command=command, deviceType=int(code))
+
+        body = {"serviceCode": device["serviceCode"], "payload": payload}
+        _LOGGER.debug("보일러 전송 deviceSeq=%s request=%s", device["deviceSeq"], request_name)
+        await self._async_authed_request(
+            "POST",
+            f"/devices/{device['deviceSeq']}/control",
+            params={"homeSeq": home_seq, "userSeq": session.user_seq},
+            raw_body=json.dumps(body, ensure_ascii=False),
+        )
+        return body
 
     async def async_get_air_sensor(
         self, home_seq: int, device_seq: int

@@ -37,12 +37,16 @@ TO_REDACT = {
     "accessToken",
     "refreshToken",
     "accountId",
+    # 보일러 `did` 는 대문자 `clientID` 로 온다. 값이 `roomcon-<MAC>` 이다.
+    "boilerControllerSerialNumber",
     "clientId",
+    "clientID",
     "defaultClientId",
     "deviceId",
     "eventId",
     "localIp",
     "mac",
+    "macAddress",
     "mqttTopicKey",
     "nickName",
     "regionCode",
@@ -134,6 +138,9 @@ async def async_get_config_entry_diagnostics(
         "supported_devices": supported,
         # 이 항목이 비어 있지 않으면 이슈에 그대로 붙여 주세요.
         "report_wanted_devices": report_wanted,
+        # 보일러에 상태를 물어본 기록. **응답이 왔는지, 어떤 모양인지**가 지원 여부를
+        # 가른다. 비어 있으면 보일러가 없거나 아직 묻기 전이다.
+        "boiler_probe": _boiler_probe_view(coordinator),
         "out_of_scope_devices": out_of_scope,
     }
     # **키 이름으로 가리는 것만으로는 부족하다.** 값 안에 식별자가 박혀 있는
@@ -143,7 +150,38 @@ async def async_get_config_entry_diagnostics(
     # 그 키를 목록에 더하는 것으로 끝내지 않는다. **다음에 또 새는 것을 막는다.**
     # 식별자 값을 먼저 모아 두고, 결과 전체에서 그 문자열을 지운다.
     # 토픽 모양(`dt/rc/7/**REDACTED**/did`)은 남으므로 지원을 넓힐 근거는 잃지 않는다.
-    return _scrub(payload, _identifiers(coordinator.raw_devices))
+    # 보일러 토픽에는 키 없이 실리는 식별자가 셋 더 있다 — `roomcon-<MAC>` 의 MAC
+    # (deviceId 앞 12자), 우리 MQTT clientId, `boiler_probe` 의 deviceId 키.
+    extra = {coordinator.mqtt_client_id}
+    for raw in coordinator.boiler_targets:
+        mac = raw["deviceId"][:12]
+        extra |= {mac, mac.lower(), mac.upper()}
+    secrets = sorted(
+        set(_identifiers(coordinator.raw_devices)) | {v for v in extra if len(v) >= 8},
+        key=len,
+        reverse=True,
+    )
+    return _scrub(payload, secrets)
+
+
+def _boiler_probe_view(coordinator: Any) -> list[dict[str, Any]]:
+    """deviceId 를 키로 쓰지 않는다 — `_scrub` 은 값만 지운다. 목록으로 바꿔 담는다."""
+    models = {
+        raw["deviceId"]: (raw.get("deviceSeq"), raw.get("modelName"), raw.get("modelCode"))
+        for raw in coordinator.boiler_targets
+    }
+    view = []
+    for device_id, record in coordinator.boiler_probe.items():
+        seq, name, code = models.get(device_id, (None, None, None))
+        view.append(
+            {
+                "deviceSeq": seq,
+                "modelName": name,
+                "modelCode": code,
+                **async_redact_data(record, TO_REDACT),
+            }
+        )
+    return view
 
 
 def _identifiers(raw_devices: list[dict[str, Any]]) -> list[str]:

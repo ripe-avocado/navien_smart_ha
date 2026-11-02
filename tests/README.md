@@ -27,6 +27,8 @@ HA 가 실제로 어떻게 도는지 알아야 하는 시험은 HA 원본을 직
 | `test_imports.py` | 전 모듈 import · CLI 문법 |
 | `test_zone_onoff.py` | 구역 하나를 끄고 켜는 길 (이슈 #16) |
 | `test_filter.py` | 필터 센서가 잔량이라는 것 (PR #18) |
+| `test_boiler_probe.py` | 보일러 상태 수집 — 봉투 · 순서 · 진단 가리기 |
+| `test_diagnostics_redact.py` | 진단 파일이 보일러 MAC·시리얼을 가리는가 (#14 · #21) |
 | `test_issue_23_25.py` | 온수매트 `1.0C` 온도조절기 (#25) · 조작음 (#23) |
 
 ## 새로 쓸 때
