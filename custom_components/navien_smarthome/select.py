@@ -196,7 +196,14 @@ class NavienSmartLevelSelect(NavienSmartEntity, SelectEntity):
 
         # 서버는 `rangeMin` 을 1로 주지만 기기는 0(운전 대기)을 받는다 — 실측 확인.
         # 그래서 0을 앞에 붙인다. 온도형에는 적용하지 않는다.
-        self._levels = [LEVEL_STANDBY, *range(low, high + 1)]
+        #
+        # **싱글에는 붙이지 않는다** (v0.21.1). 「운전 대기」는 좌우 중 한쪽을 끄는
+        # 것이고, 싱글은 끌 「한쪽」이 없다 — 앱도 막는다. 넣어 두면 누를 때 전원을
+        # 꺼야 하는데, 기기는 꺼져도 마지막 단계를 보고해서 「운전 대기를 눌렀는데
+        # 1단계」로 보인다. 싱글의 단계 목록은 「켜면 이 단계로 돈다」 하나만 뜻하고,
+        # 켜고 끄기는 전원 스위치가 맡는다.
+        steps = list(range(low, high + 1))
+        self._levels = [LEVEL_STANDBY, *steps] if len(device.zones) > 1 else steps
         self._attr_options = [level_label(value) for value in self._levels]
 
     @property
@@ -258,9 +265,8 @@ class NavienSmartLevelSelect(NavienSmartEntity, SelectEntity):
             # 명령이라 같은 자리를 쓴다 (이슈 #16).
             #
             # **한쪽만 대기로 내리는 것은 종전과 똑같다** — `build_zone_off` 가
-            # 같은 `heater` 를 만든다. 달라지는 것은 **마지막 남은 구역**을 내릴
-            # 때뿐이다. 좌우 분리는 기기가 어차피 막으므로 이유를 알리고, 싱글은
-            # 전원을 끈다 (v0.21.0).
+            # 같은 `heater` 를 만든다. **마지막 남은 구역**은 기기가 어차피 막으므로
+            # 이유를 알린다. 싱글은 이 항목이 목록에 없다 (v0.21.1).
             # (실기기 확인: 좌 0 인 상태에서 우를 0 으로 내리면 `0, 1` 로 남는다)
             await self.coordinator.async_send(
                 device, device.build_zone_off([self._zone])

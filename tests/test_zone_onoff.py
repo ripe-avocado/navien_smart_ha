@@ -170,9 +170,25 @@ single = make_mat(**TEMP, capacity=1, zones={"single": 30.0})
 r.ok(refuse(single, ["single"]) is None, "싱글 온도형은 거부하지 않는다")
 r.ok(single.build_zone_off(["single"]) == {"operationMode": 0}, "전원 끄기만 보낸다")
 
+# 싱글 단계형의 단계 목록에는 「운전 대기」가 없다 (v0.21.1). 끌 「한쪽」이 없고,
+# 넣으면 「운전 대기를 눌렀는데 1단계로 보인다」가 된다 — 기기는 꺼져도 마지막
+# 단계를 보고한다. 켜고 끄기는 전원 스위치다.
+import asyncio  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from navien_smarthome.select import NavienSmartLevelSelect  # noqa: E402
+
+
+def level_options(device, zone):
+    coordinator = SimpleNamespace(data={device.device_id: device})
+    return NavienSmartLevelSelect(coordinator, device, zone)._attr_options
+
+
 single_level = make_mat(**LEVEL, capacity=1, zones={"single": 3})
-r.ok(single_level.build_zone_off(["single"]) == {"operationMode": 0},
-     "싱글 단계형의 「운전 대기」도 전원 끄기")
+opts = level_options(single_level, "single")
+r.ok("운전 대기" not in opts and opts[0] == "1단계", f"싱글 단계형: {opts[0]} ~ {opts[-1]}")
+double_level = make_mat(**LEVEL, capacity=2, zones={"left": 3, "right": 2})
+r.ok(level_options(double_level, "left")[0] == "운전 대기", "좌우 분리는 「운전 대기」 유지")
 
 # 꺼진 상태에서 단계를 바꾸면 기기가 들고 있다가 켤 때 그 단계로 시작한다
 # (실기기 EME-500). 미리 맞춰 두는 쓰임새라 전원을 켜지 않는다.
