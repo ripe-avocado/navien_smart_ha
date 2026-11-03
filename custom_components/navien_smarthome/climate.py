@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.climate import (
+    ATTR_HVAC_MODE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -215,9 +216,22 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
             changes={zone: value for zone in zones},
             enables={zone: True for zone in zones},
         )
-        await self.coordinator.async_send(
-            device, {"operationMode": MODE_HEAT, "heater": heater}
-        )
+        desired: dict[str, Any] = {"heater": heater}
+        # **꺼져 있으면 온도만 저장한다** (v0.21.0). 앱 홈 카드가 그렇게 보낸다 —
+        # `control-temp` 에 `operationMode` 가 없다. 기기는 그 값을 들고 있다가
+        # 켤 때 그 온도로 시작한다 (EQM-580 제보자 실기기 확인). 단계형도 같다.
+        #
+        # 켜려면 HA 규칙대로 `hvac_mode` 를 함께 준다. 상태를 아직 모르면 예전처럼
+        # 켜는 쪽으로 보낸다 — 켜져 있을 때 검증된 형태다.
+        hvac_mode = kwargs.get(ATTR_HVAC_MODE)
+        if hvac_mode is None:
+            if device.operation_mode is None or device.is_on:
+                desired["operationMode"] = MODE_HEAT
+        elif hvac_mode != HVACMode.OFF:
+            desired["operationMode"] = MODE_HEAT
+        await self.coordinator.async_send(device, desired)
+        if hvac_mode == HVACMode.OFF:
+            await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         device = self.device
@@ -234,6 +248,6 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
             await self.coordinator.async_send(device, device.build_zone_on(zones))
             return
         # **`enable: false` 만으로는 안 꺼진다** (이슈 #16). 값을 `off_value` 까지
-        # 내려야 기기가 받는다. 남는 구역이 없으면 전원 끄기로 돌아간다 —
-        # 판단은 `build_zone_off` 안에 있다.
+        # 내려야 기기가 받는다. 남는 구역이 없으면 싱글은 전원을 끄고 좌우 분리는
+        # 막는다 — 판단은 `build_zone_off` 안에 있다.
         await self.coordinator.async_send(device, device.build_zone_off(zones))

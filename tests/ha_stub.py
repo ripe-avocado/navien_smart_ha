@@ -153,6 +153,7 @@ stub(
 stub(
     "homeassistant.components.climate",
     pkg=True,
+    ATTR_HVAC_MODE="hvac_mode",
     ClimateEntity=Base,
     ClimateEntityFeature=enum(TARGET_TEMPERATURE=1, TURN_ON=2, TURN_OFF=4),
     HVACMode=enum(HEAT="heat", OFF="off", COOL="cool"),

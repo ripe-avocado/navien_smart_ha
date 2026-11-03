@@ -259,12 +259,16 @@ class NavienSmartLevelSelect(NavienSmartEntity, SelectEntity):
             #
             # **한쪽만 대기로 내리는 것은 종전과 똑같다** — `build_zone_off` 가
             # 같은 `heater` 를 만든다. 달라지는 것은 **마지막 남은 구역**을 내릴
-            # 때뿐이고, 그때는 기기가 어차피 막으므로 이유를 알린다.
+            # 때뿐이다. 좌우 분리는 기기가 어차피 막으므로 이유를 알리고, 싱글은
+            # 전원을 끈다 (v0.21.0).
             # (실기기 확인: 좌 0 인 상태에서 우를 0 으로 내리면 `0, 1` 로 남는다)
             await self.coordinator.async_send(
                 device, device.build_zone_off([self._zone])
             )
             return
+        # **전원을 켜지 않는다.** 꺼진 상태에서 단계를 바꾸면 기기가 그 값을 들고
+        # 있다가 다음에 켤 때 그 단계로 시작한다 (실기기 EME-500). 미리 맞춰 두는
+        # 쓰임새라 살린다.
         heater = device.build_heater_desired({self._zone: level})
         await self.coordinator.async_send(device, {"heater": heater})
 

@@ -150,7 +150,7 @@ r.ok(
 )
 
 
-r.section("마지막 남은 구역은 못 끈다 — 막고 알린다")
+r.section("좌우 분리 — 마지막 남은 구역은 못 끈다, 막고 알린다")
 
 half = make_mat(**TEMP, capacity=2, zones={"left": 27.5, "right": 30.0})
 r.ok(half.zone_is_off("left") is True, "좌측이 이미 꺼져 있다")
@@ -159,12 +159,25 @@ r.ok(msg is not None, "마지막 남은 구역은 거부한다")
 r.ok("매트 전원을 종료해" in (msg or ""), f"무엇을 하면 되는지 알린다: {msg}")
 r.ok(refuse(half, ["left", "right"]) is not None, "양쪽을 함께 끄는 것도 거부")
 
-single = make_mat(**TEMP, capacity=1, zones={"single": 30.0})
-r.ok(refuse(single, ["single"]) is not None, "단일 구역 매트도 마찬가지")
+# **좌우 분리는 전원을 대신 꺼주지 않는다.** 앱도 그렇게 하지 않는다.
+r.ok("operationMode" not in str(refuse(half, ["right"]) or ""), "거부일 뿐 전원 명령이 없다")
 
-# **전원을 대신 꺼주지 않는다.** 앱도 그렇게 하지 않는다.
-build_zone_off = MODELS.split("def build_zone_off")[1].split("\n    def ")[0]
-r.ok("operationMode" not in build_zone_off, "끄기가 전원 명령을 만들지 않는다")
+
+r.section("싱글 — 끄기는 전원 끄기 (v0.21.0)")
+
+# 막으면 온도조절기 「꺼짐」· 음성 「꺼줘」· 자동화 끄기가 항상 실패한다.
+single = make_mat(**TEMP, capacity=1, zones={"single": 30.0})
+r.ok(refuse(single, ["single"]) is None, "싱글 온도형은 거부하지 않는다")
+r.ok(single.build_zone_off(["single"]) == {"operationMode": 0}, "전원 끄기만 보낸다")
+
+single_level = make_mat(**LEVEL, capacity=1, zones={"single": 3})
+r.ok(single_level.build_zone_off(["single"]) == {"operationMode": 0},
+     "싱글 단계형의 「운전 대기」도 전원 끄기")
+
+# 꺼진 상태에서 단계를 바꾸면 기기가 들고 있다가 켤 때 그 단계로 시작한다
+# (실기기 EME-500). 미리 맞춰 두는 쓰임새라 전원을 켜지 않는다.
+level_set = SELECT.split("# **전원을 켜지 않는다.**")[1].split("\n\n")[0]
+r.ok("operationMode" not in level_set, "단계 선택은 전원을 켜지 않는다")
 
 # 모르면 막지 않는다 — 보내보고 기기 판단에 맡긴다.
 unknown = make_mat(**TEMP, capacity=2, zones={"right": 30.0})
@@ -194,6 +207,49 @@ r.section("엔티티가 서로 다른 축을 쓴다")
 r.ok("not control.is_celsius" in CLIMATE, "climate 는 온도형에만 생긴다")
 r.ok("not control.is_level" in SELECT, "select 는 단계형에만 생긴다")
 r.ok("build_zone_off" in SELECT, "단계형의 「운전 대기」도 같은 자리를 쓴다")
+
+
+r.section("온도 바꾸기 — 꺼져 있으면 저장만 한다 (v0.21.0)")
+
+# 앱 홈 카드는 꺼진 상태에서도 온도를 바꾼다. `control-temp` 에 `operationMode` 가
+# 없고, 기기는 켤 때 그 온도로 시작한다 (EQM-580 제보자 실기기 확인).
+import asyncio  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from navien_smarthome.climate import NavienSmartThermostat  # noqa: E402
+
+
+def set_temp(device, **kwargs) -> list[dict]:
+    sent: list[dict] = []
+
+    async def send(_device, desired):
+        sent.append(desired)
+
+    async def set_mode(mode):
+        sent.append({"set_hvac_mode": mode})
+
+    fake = SimpleNamespace(device=device, _target_zones=list(device.zones),
+                           coordinator=SimpleNamespace(async_send=send),
+                           async_set_hvac_mode=set_mode)
+    asyncio.run(NavienSmartThermostat.async_set_temperature(fake, **kwargs))
+    return sent
+
+
+on = make_mat(**TEMP, capacity=1, zones={"single": 30.0})
+r.ok(set_temp(on, temperature=33)[0].get("operationMode") == 1, "켜져 있으면 예전과 같다")
+
+off = make_mat(**TEMP, capacity=1, zones={"single": 30.0})
+off.apply_reported({"operationMode": 0})
+sent = set_temp(off, temperature=33)
+r.ok("operationMode" not in sent[0], "꺼져 있으면 전원을 켜지 않는다")
+r.ok(sent[0]["heater"]["single"]["temperature"]["set"] == 33.0, "온도는 보낸다 — 켤 때 쓰인다")
+
+sent = set_temp(off, temperature=33, hvac_mode="heat")
+r.ok(sent[0].get("operationMode") == 1, "hvac_mode: heat 를 주면 켠다 (HA 규칙)")
+
+sent = set_temp(off, temperature=33, hvac_mode="off")
+r.ok("operationMode" not in sent[0] and sent[-1] == {"set_hvac_mode": "off"},
+     "hvac_mode: off 는 온도를 저장하고 끄기로 넘긴다")
 
 
 sys.exit(r.finish())
