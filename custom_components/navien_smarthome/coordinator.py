@@ -37,6 +37,7 @@ from .const import (
     AIRONE_SILENCE_CHECK_SECONDS,
     AIRONE_TOPIC_FMT,
     AIRONE_UPDATE_INTERVAL_SECONDS,
+    BOILER_KEEP_FIRST,
     BOILER_KEEP_MESSAGES,
     BOILER_MGPP_MODELS,
     BOILER_NR35_MODELS,
@@ -617,7 +618,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         ]
 
     def _boiler_record(self, device_id: str) -> dict[str, list[dict[str, Any]]]:
-        return self.boiler_probe.setdefault(device_id, {"sent": [], "received": []})
+        return self.boiler_probe.setdefault(
+            device_id, {"sent": [], "first": [], "received": []}
+        )
 
     async def _async_probe_boilers(self) -> None:
         """앱이 보일러 화면을 열 때와 같은 읽기 요청 두 개를 보낸다."""
@@ -650,8 +653,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             (raw["deviceId"] for raw in self.boiler_targets if raw["deviceId"] in topic),
             "unknown",
         )
-        received = self._boiler_record(device_id)["received"]
-        received.append({"at": round(time.monotonic(), 1), "topic": topic, "body": body})
+        record = self._boiler_record(device_id)
+        message = {"at": round(time.monotonic(), 1), "topic": topic, "body": body}
+        if len(record["first"]) < BOILER_KEEP_FIRST:
+            record["first"].append(message)
+            return
+        received = record["received"]
+        received.append(message)
         del received[:-BOILER_KEEP_MESSAGES]
 
     async def async_stop_mqtt(self) -> None:

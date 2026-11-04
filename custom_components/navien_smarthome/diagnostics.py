@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -170,6 +171,10 @@ def _boiler_probe_view(coordinator: Any) -> list[dict[str, Any]]:
         raw["deviceId"]: (raw.get("deviceSeq"), raw.get("modelName"), raw.get("modelCode"))
         for raw in coordinator.boiler_targets
     }
+    # **기록의 `at` 과 같은 시계로 지금 시각을 남긴다** (v0.21.2). 이게 없어서
+    # 마지막 메시지가 1분 전인지 한 시간 전인지 가릴 수 없었다 — 「기기가 스스로
+    # 올리는가」는 시간 축이 있어야 판단된다.
+    now = round(time.monotonic(), 1)
     view = []
     for device_id, record in coordinator.boiler_probe.items():
         seq, name, code = models.get(device_id, (None, None, None))
@@ -178,6 +183,7 @@ def _boiler_probe_view(coordinator: Any) -> list[dict[str, Any]]:
                 "deviceSeq": seq,
                 "modelName": name,
                 "modelCode": code,
+                "now_at": now,
                 **async_redact_data(record, TO_REDACT),
             }
         )

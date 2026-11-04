@@ -135,9 +135,18 @@ for i in range(12):
          "payload": {"response": {"macAddress": MAC.lower(), "status": {"operationMode": 5, "n": i}}}},
     )
 NavienSmartCoordinator._handle_boiler_message(probe, "1/smarttok/connected/OTHER", {"x": 1})
+first = probe.boiler_probe[DEVICE_ID]["first"]
 received = probe.boiler_probe[DEVICE_ID]["received"]
-r.ok(len(received) == coord_mod.BOILER_KEEP_MESSAGES, f"최근 {coord_mod.BOILER_KEEP_MESSAGES}개만")
+keep_first = coord_mod.BOILER_KEEP_FIRST
+r.ok(len(first) == keep_first and first[0]["body"]["payload"]["response"]["status"]["n"] == 0,
+     f"처음 {keep_first}개는 따로 둔다 — 뒤에 밀려나지 않는다")
+r.ok(len(received) == 12 - keep_first, "그 뒤 것은 received 에")
 r.ok(received[-1]["body"]["payload"]["response"]["status"]["n"] == 11, "가장 최근 것이 남는다")
+for i in range(12, 30):
+    NavienSmartCoordinator._handle_boiler_message(
+        probe, f"1/smarttok/{DEVICE_ID}", {"payload": {"response": {"status": {"n": i}}}})
+r.ok(len(received) == coord_mod.BOILER_KEEP_MESSAGES, f"received 는 최근 {coord_mod.BOILER_KEEP_MESSAGES}개만")
+r.ok(len(first) == keep_first, "first 는 그대로")
 r.ok("unknown" in probe.boiler_probe, "어느 보일러 것인지 모르면 따로 둔다")
 
 
@@ -159,8 +168,9 @@ for label, secret in (("deviceId", DEVICE_ID), ("MAC", MAC), ("MAC 소문자", M
                       ("mqttTopicKey", TOPIC_KEY), ("clientId", CLIENT)):
     r.ok(secret not in text, f"{label} 가 안 남는다")
 view = diag["boiler_probe"]
+r.ok(isinstance(view[0]["now_at"], float), "지금 시각을 같은 시계로 남긴다 — 메시지가 언제 왔는지 계산된다")
 r.ok(isinstance(view, list) and view[0]["modelName"] == "NR-67D", "목록으로 담는다 — deviceId 키가 없다")
-r.ok(view[0]["received"][-1]["body"]["payload"]["response"]["status"]["operationMode"] == 5,
+r.ok(view[0]["first"][0]["body"]["payload"]["response"]["status"]["operationMode"] == 5,
      "상태 값은 그대로 남는다")
 
 sys.exit(r.finish())
