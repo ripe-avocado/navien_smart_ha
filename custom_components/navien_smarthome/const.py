@@ -105,10 +105,13 @@ TOPIC_PREFIX: Final = {SERVICE_MATE: "mate", SERVICE_AIRONE: "airone"}
 # (`status/start`), 현재 상태(`status`). 설정은 바뀌지 않는다. 형식은 APK 로
 # 확인했다 (`BoilerConstants.boilerMqttPayload`, `HomeViewModel.getDeviceStart`).
 #
-# 봉투는 modelCode 로만 갈린다. 각방(120 · 011)과 도트(001)는 모양이 달라 묻지 않는다.
+# 봉투는 modelCode 로만 갈린다. 각방 Hi(120)와 도트(001)는 모양이 달라 묻지 않는다.
+# NRM-35D 각방(011)은 묻는다 (v0.21.4) — 앱이 NR-35/40D 와 **같은 봉투**로 상태를
+# 묻는다 (`boilerNR35SeriesMqttPayload`). 방 비트문자열은 제어 때만 붙는다. 응답의
+# `status` 는 방마다 하나씩 든 목록이다 (`GetStatusDataNRM35`).
 BOILER_PREFIX: Final = "smarttok"
 BOILER_MGPP_MODELS: Final = frozenset({"20"})  # NR-6x — protocolVersion·command·deviceType 실림
-BOILER_NR35_MODELS: Final = frozenset({"002", "003"})  # NR-35/40D — 그 셋이 없다
+BOILER_NR35_MODELS: Final = frozenset({"002", "003", "011"})  # NR-35/40D · NRM-35D — 그 셋이 없다
 # (요청, 응답, command)
 BOILER_REQ_START: Final = ("status/start", "res/start", 16777217)
 BOILER_REQ_STATUS: Final = ("status", "res", 16777219)

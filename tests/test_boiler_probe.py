@@ -83,13 +83,19 @@ r.section("대상 고르기")
 fake = SimpleNamespace(raw_devices=[
     boiler("20"),
     boiler("003", deviceSeq=8, deviceId="AABBCCDDEEFF0001"),
-    boiler("120", deviceSeq=9),                        # 각방 — 모양이 달라 안 묻는다
+    boiler("011", deviceSeq=13, deviceId="AABBCCDDEEFF0002"),  # NRM-35D 각방 — NR35 봉투
+    boiler("120", deviceSeq=9),                        # 각방 Hi — 모양이 달라 안 묻는다
     boiler("001", deviceSeq=10),                       # 도트 — 안 묻는다
     boiler("20", deviceSeq=11, deviceId="SHORT"),      # deviceId 를 못 쪼갠다
     {"deviceSeq": 12, "serviceCode": 200, "modelCode": "20", "deviceId": DEVICE_ID},
 ])
 targets = NavienSmartCoordinator.boiler_targets.fget(fake)
-r.ok([t["deviceSeq"] for t in targets] == [7, 8], f"20 · 003 만 묻는다: {[t['deviceSeq'] for t in targets]}")
+r.ok([t["deviceSeq"] for t in targets] == [7, 8, 13], f"20 · 003 · 011 만 묻는다: {[t['deviceSeq'] for t in targets]}")
+
+body, _ = body_for("011", coord_mod.BOILER_REQ_STATUS)
+p = body["payload"]
+r.ok("protocolVersion" not in p and "command" not in p["request"], "011 은 NR35 봉투 (protocolVersion·command 없음)")
+r.ok(p["requestTopic"] == f"cmd/011/roomcon-{MAC}/status", "011 토픽")
 
 
 r.section("요청 순서 — start 뒤 status")
