@@ -145,7 +145,7 @@ async def async_get_config_entry_diagnostics(
         "out_of_scope_devices": out_of_scope,
     }
     # **키 이름으로 가리는 것만으로는 부족하다.** 값 안에 식별자가 박혀 있는
-    # 경우가 있다 — `requestTopic: "dt/rc/7/1097BD3F5CACB84E/did"` 가 그것이다.
+    # 경우가 있다 — `requestTopic: "dt/rc/7/A1B2C3D4E5F65678/did"` 가 그것이다.
     # `requestTopic` 은 가릴 키 목록에 없었고, 제보자가 이 줄을 공개로 올렸다.
     #
     # 그 키를 목록에 더하는 것으로 끝내지 않는다. **다음에 또 새는 것을 막는다.**
