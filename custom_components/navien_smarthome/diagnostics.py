@@ -39,6 +39,9 @@ TO_REDACT = {
     "accessToken",
     "refreshToken",
     "accountId",
+    # `deviceId` 뒤 4자. 보일러 요청·응답에 이 키로 실린다 — 8자 미만이라 `_scrub` 의
+    # 값 지우기에 안 걸린다 (#14 제보자 제안, v0.23.1).
+    "additionalValue",
     # 보일러 `did` 는 대문자 `clientID` 로 온다. 값이 `roomcon-<MAC>` 이다.
     "boilerControllerSerialNumber",
     "clientId",

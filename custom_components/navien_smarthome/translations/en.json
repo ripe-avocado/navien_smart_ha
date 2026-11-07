@@ -52,9 +52,9 @@
     "step": {
       "init": {
         "title": "Navien Smart options",
-        "description": "Boiler control is experimental and not yet verified on real devices. When enabled, Home Assistant can change the boiler power, heating mode, temperature and hot water temperature. NR-6x models only for now. If anything looks wrong, turn it off and open a GitHub issue.",
+        "description": "Choose whether Home Assistant can control the boiler. When enabled, you can change power, heating mode, temperature and hot water temperature. NR-6x models only for now (verified on real devices). When disabled, only status is shown.",
         "data": {
-          "boiler_control": "Enable boiler control (experimental)"
+          "boiler_control": "Enable boiler control"
         }
       }
     }

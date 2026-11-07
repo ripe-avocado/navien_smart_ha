@@ -204,8 +204,11 @@ def raises(coro) -> bool:
     return False
 
 
+default = SimpleNamespace(config_entry=SimpleNamespace(options={}))
+r.ok(NavienSmartCoordinator.boiler_control_enabled.fget(default) is True,
+     "설정을 건드린 적 없으면 켜짐 (v0.24.0 부터 기본)")
 off = control_coord(False, {ID_20: b20})
-r.ok(not off.boiler_controllable(b20), "설정이 꺼져 있으면 제어 못 한다 (기본)")
+r.ok(not off.boiler_controllable(b20), "직접 끄면 제어 못 한다")
 r.ok(raises(off.async_boiler_control(b20, BOILER_CMD_POWER_OFF, [])) and calls == [],
      "꺼져 있으면 명령이 나가지 않는다")
 on = control_coord(True, {ID_20: b20, ID_40: b40, ID_35: b35})

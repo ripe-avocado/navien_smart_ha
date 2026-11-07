@@ -148,14 +148,14 @@ class NavienSmartConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class NavienSmartOptionsFlow(OptionsFlow):
-    """「보일러 제어 (실험)」 하나. 바꾸면 통합이 다시 불러와진다 (`__init__` 의 리스너)."""
+    """「보일러 제어 사용」 하나 (기본 켜짐). 바꾸면 통합이 다시 불러와진다 (`__init__` 의 리스너)."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(data=user_input)
-        current = bool(self.config_entry.options.get(CONF_BOILER_CONTROL, False))
+        current = bool(self.config_entry.options.get(CONF_BOILER_CONTROL, True))
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(

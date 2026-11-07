@@ -474,7 +474,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         if raw in self.boiler_targets:
             _LOGGER.info(
                 "%s (modelName=%s) 를 베타로 연결합니다 — 상태 보기. "
-                "제어는 통합 설정의 '보일러 제어 (실험)' 에서 켭니다.",
+                "NR-6x 는 제어도 됩니다 (통합 설정의 '보일러 제어 사용').",
                 name,
                 raw.get("modelName"),
             )
@@ -755,12 +755,18 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 _LOGGER.debug("%s 상태 요청 실패: %s", boiler.nickname, err)
                 return
 
-    # -- 보일러 제어 (실험) --------------------------------------------------
+    # -- 보일러 제어 ---------------------------------------------------------
 
     @property
     def boiler_control_enabled(self) -> bool:
-        """통합 설정의 「보일러 제어 (실험)」. 기본은 꺼짐."""
-        return bool(self.config_entry.options.get(CONF_BOILER_CONTROL, False))
+        """통합 설정의 「보일러 제어 사용」. **기본은 켜짐** (v0.24.0).
+
+        v0.22.0~v0.23.0 은 실험이라 기본으로 꺼 두었다. NR-6x 두 대(#20 NR-67D ·
+        #26 NR-60DS)에서 전원 · 실내 · 온돌 · 외출 · 온수가 모두 확인돼 기본을 바꿨다.
+        직접 끈 사람(False 로 저장)은 그대로 꺼져 있다. 제어 대상은 여전히
+        `BOILER_CONTROL_MODELS` 뿐이다.
+        """
+        return bool(self.config_entry.options.get(CONF_BOILER_CONTROL, True))
 
     def boiler_controllable(self, boiler: BoilerDevice) -> bool:
         return self.boiler_control_enabled and boiler.model_code in BOILER_CONTROL_MODELS
@@ -771,7 +777,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         """명령 하나를 보낸다. 결과는 보일러가 보내는 상태 방송으로 돌아온다."""
         if not self.boiler_controllable(boiler):
             raise HomeAssistantError(
-                "보일러 제어가 꺼져 있습니다. 통합 설정의 '보일러 제어 (실험)' 을 켜 주세요."
+                "보일러 제어가 꺼져 있습니다. 통합 설정의 '보일러 제어 사용' 을 켜 주세요."
             )
         mode, code = command
         self.boiler_commands.append(

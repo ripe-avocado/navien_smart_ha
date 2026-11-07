@@ -17,7 +17,6 @@ from navien_smarthome.diagnostics import (  # noqa: E402
     _scrub,
 )
 
-from homeassistant.components.diagnostics import async_redact_data  # noqa: E402
 
 r = Report()
 
@@ -32,6 +31,7 @@ boiler = {
             "requestTopic": f"cmd/20/roomcon-{MAC}/status/start",
             "response": {
                 "macAddress": MAC,
+                "additionalValue": "9F8E",
                 "deviceType": 20,
                 "feature": {
                     "boilerControllerSerialNumber": SERIAL,
@@ -44,10 +44,22 @@ boiler = {
 
 r.section("보일러 did 의 식별자")
 
-out = _scrub(async_redact_data(boiler, TO_REDACT), _identifiers([boiler]))
+
+def redact(value, keys):
+    """HA `async_redact_data` 와 같은 동작 — 목록에 있는 키의 값을 어느 깊이든 가린다.
+    스텁은 받은 것을 그대로 돌려주므로 키 가림을 시험하려면 이게 필요하다."""
+    if isinstance(value, dict):
+        return {k: ("**REDACTED**" if k in keys else redact(v, keys)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v, keys) for v in value]
+    return value
+
+
+out = _scrub(redact(boiler, TO_REDACT), _identifiers([boiler]))
 text = repr(out)
 r.ok(MAC not in text, "MAC 이 어디에도 안 남는다")
 r.ok(SERIAL not in text, "보일러 시리얼이 안 남는다")
+r.ok("9F8E" not in text, "deviceId 뒤 4자(additionalValue)도 안 남는다 (#14 제보자 제안)")
 topic = out["Properties"]["did"]["requestTopic"]
 r.ok(topic.startswith("cmd/20/") and topic.endswith("/status/start"),
      f"토픽 모양은 남는다: {topic}")

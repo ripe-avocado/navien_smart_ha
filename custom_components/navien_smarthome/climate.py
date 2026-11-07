@@ -273,7 +273,7 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
         await self.coordinator.async_send(device, device.build_zone_off(zones))
 
 
-# -- 보일러 (v0.22.0 베타, 실험 설정을 켠 NR-6x 만) ---------------------------
+# -- 보일러 (제어를 켠 NR-6x 만 — v0.24.0 부터 기본 켜짐) ----------------------
 
 # 프리셋 이름 → (기능 Use 이름, operationMode)
 _BOILER_PRESETS = (
@@ -284,11 +284,13 @@ _BOILER_PRESETS = (
 
 
 class BoilerThermostat(BoilerEntity, ClimateEntity):
-    """보일러 난방. 명령 형식은 앱 코드로 확인했고 **실기기로는 확인 전이다.**
+    """보일러 난방. 명령은 앱 코드로 확인했고, **NR-6x 두 대에서 실기기로 확인했다**
+    (#20 NR-67D: 온돌 온도 · 전원 / #26 NR-60DS: 실내 · 온돌 · 외출 · 전원, 각 1~2초 안에 반영).
 
     온도를 바꾸면 그 난방 방식(실내/온돌)의 설정값이 바뀐다 — 앱의 슬라이더와
     같은 명령이다 (`inside-heat` · `ondol-heat`). 외출 중에 온도를 바꾸면 그
     난방으로 돌아간다(앱과 같은 명령이라 그렇게 될 것으로 본다 — 확인 전).
+    전원을 다시 켜면 꺼지기 전 모드로 돌아온다 (#26: 외출 → 끔 → 켬 → 외출).
     """
 
     _attr_name = "난방"
