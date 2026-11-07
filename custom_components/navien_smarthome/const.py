@@ -89,19 +89,19 @@ SERVICE_NAMES: Final = {
 
 # MQTT 구독 토픽 접두사. 앱의 `HomeViewModel` 이 `/{접두사}/#` 로 구독한다 —
 # `smarttok`(보일러) `mate` `airone` `scada` `homeauto` 다섯 개가 전부다.
-# 매트는 실측 확인됨. 보일러는 엔티티를 만들지 않으므로 여기 넣지 않고,
-# 상태 수집(`BOILER_PREFIX`)이 따로 붙인다.
+# 매트는 실측 확인됨. 보일러는 여기 넣지 않는다 — 형식을 아는 modelCode 가
+# 있을 때만 `BOILER_PREFIX` 를 따로 붙인다.
 #
 # 에어원 **제어**는 이 체계가 아니라 `AIRONE_TOPIC_FMT` 를 쓴다. 구독만 여기다.
 TOPIC_PREFIX: Final = {SERVICE_MATE: "mate", SERVICE_AIRONE: "airone"}
 
 # --- 보일러 상태 수집 -----------------------------------------------------
 #
-# **엔티티를 만들지 않는다.** 응답이 우리에게 오는지, 어떤 모양인지를 진단 파일에
-# 담아 지원 여부를 판단하려는 것이다. 제보자에게 도구를 돌려 달라고 할 수 없어서
-# 통합이 직접 묻는다.
+# v0.20.0 부터 응답이 우리에게 오는지, 어떤 모양인지를 진단 파일에 담아 왔다.
+# v0.22.0 부터 그 응답으로 엔티티를 만든다 (베타) — 아래 「보일러 베타」 참조.
+# 처음 받은 것을 진단에 남기는 기록은 그대로 둔다.
 #
-# 앱이 보일러 화면을 열 때와 같은 **읽기 요청 두 개만** 보낸다 — 기능 목록
+# 앱이 보일러 화면을 열 때와 같은 **읽기 요청 두 개**를 보낸다 — 기능 목록
 # (`status/start`), 현재 상태(`status`). 설정은 바뀌지 않는다. 형식은 APK 로
 # 확인했다 (`BoilerConstants.boilerMqttPayload`, `HomeViewModel.getDeviceStart`).
 #
@@ -125,6 +125,48 @@ BOILER_KEEP_MESSAGES: Final = 10
 # 밀려나면 형식 판단 근거가 사라진다. 그 뒤로 오는 것은 요청하지 않은 것이므로
 # 「기기가 스스로 올리는가」를 그대로 보여준다.
 BOILER_KEEP_FIRST: Final = 5
+
+# --- 보일러 베타 (v0.22.0) ------------------------------------------------
+#
+# **상태는 모두에게, 제어는 설정에서 켠 사람에게만.** 상태 형식은 실기기 응답으로
+# 확인했다 (#20 #26 NR-6x · #24 NR-40D · #28 NRM-35D). 제어 형식은 앱 코드로만
+# 확인했다 — 실기기로 확인하기 전까지는 사용자가 직접 켜야 명령이 나간다.
+CONF_BOILER_CONTROL: Final = "boiler_control"
+# 제어를 열어 두는 modelCode. NR-6x 만 — 보일러가 바뀐 상태를 스스로 알려 주는
+# 것까지 확인된 계열이다 (#20, 실내조절기 조작이 수 초 안에 방송됨).
+# NR-40D·NRM-35D 는 명령 모양이 달라(각방은 방 비트문자열) 제보자 확인 뒤에 연다.
+BOILER_CONTROL_MODELS: Final = frozenset({"20"})
+# 이 시간 동안 보일러에게서 아무 메시지도 없으면 상태를 한 번 묻는다. 상태가
+# 바뀌면 보일러가 알아서 보내므로(#20) 평소에는 묻지 않는다. 매트 폴링 주기와 같다.
+BOILER_STALE_SECONDS: Final = 900
+# 기능 목록이 처음 들어온 보일러를 플랫폼에 알린다. 엔티티는 MQTT 가 붙기 전에
+# 만들어지므로, 무엇을 지원하는지 알게 된 뒤에 더한다. `{entry_id}` 로 갈린다.
+SIGNAL_BOILER_READY: Final = "navien_smarthome_boiler_ready_{}"
+
+# `operationMode` (앱 `SmartTokControlFragment`). 4 는 NR-6x 에서 온수전용·외출을
+# 함께 뜻한다(앱 코드). 모르는 값은 `알 수 없음(N)` 으로 둔다.
+BOILER_MODE_OFF: Final = 1
+BOILER_MODE_GOOUT: Final = 4
+BOILER_MODE_INSIDE: Final = 5
+BOILER_MODE_ONDOL: Final = 6
+BOILER_MODE_NAMES: Final = {
+    1: "꺼짐",
+    4: "외출",
+    5: "실내난방",
+    6: "온돌난방",
+    7: "반복예약",
+    8: "24시간예약",
+    10: "온수전용",
+}
+
+# 제어 (요청 이름 `control`, 응답 `res`). (mode, command) — 앱 `ControlRequestMode`
+# 와 `DeviceControlViewFragment` 의 `boilerControlDevice(...)` 호출에서 옮겼다.
+BOILER_CMD_POWER_ON: Final = ("power-on", 33554434)
+BOILER_CMD_POWER_OFF: Final = ("power-off", 33554433)
+BOILER_CMD_GOOUT: Final = ("goout-on", 33554436)
+BOILER_CMD_INSIDE: Final = ("inside-heat", 33554437)
+BOILER_CMD_ONDOL: Final = ("ondol-heat", 33554438)
+BOILER_CMD_HOTWATER: Final = ("hotwater-temperature", 33554443)
 
 # --- 에어원 (환기청정) ----------------------------------------------------
 #

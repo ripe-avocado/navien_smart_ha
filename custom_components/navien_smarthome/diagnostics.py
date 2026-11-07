@@ -142,6 +142,8 @@ async def async_get_config_entry_diagnostics(
         # 보일러에 상태를 물어본 기록. **응답이 왔는지, 어떤 모양인지**가 지원 여부를
         # 가른다. 비어 있으면 보일러가 없거나 아직 묻기 전이다.
         "boiler_probe": _boiler_probe_view(coordinator),
+        # 보일러 베타 (v0.22.0). 해석에 쓴 기능·상태와 보낸 명령. 앱 화면과 대조할 근거.
+        "boilers": _boilers_view(coordinator),
         "out_of_scope_devices": out_of_scope,
     }
     # **키 이름으로 가리는 것만으로는 부족하다.** 값 안에 식별자가 박혀 있는
@@ -163,6 +165,35 @@ async def async_get_config_entry_diagnostics(
         reverse=True,
     )
     return _scrub(payload, secrets)
+
+
+def _boilers_view(coordinator: Any) -> dict[str, Any]:
+    """deviceId 를 키로 쓰지 않는다 (`_boiler_probe_view` 와 같은 이유)."""
+    now = time.monotonic()
+    return {
+        "control_enabled": coordinator.boiler_control_enabled,
+        "stats": dict(coordinator.boiler_stats),
+        "commands": list(coordinator.boiler_commands),
+        "now_at": round(now, 1),
+        "devices": [
+            {
+                "deviceSeq": boiler.raw.get("deviceSeq"),
+                "modelName": boiler.model_name,
+                "modelCode": boiler.model_code,
+                "controllable": coordinator.boiler_controllable(boiler),
+                "last_message_seconds_ago": (
+                    None
+                    if boiler.last_message_at is None
+                    else round(now - boiler.last_message_at, 1)
+                ),
+                "mode": boiler.mode_name(boiler.operation_mode),
+                "feature": async_redact_data(boiler.feature, TO_REDACT),
+                "status": boiler.status,
+                "rooms": {str(k): v for k, v in sorted(boiler.rooms.items())},
+            }
+            for boiler in coordinator.boilers.values()
+        ],
+    }
 
 
 def _boiler_probe_view(coordinator: Any) -> list[dict[str, Any]]:

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .airone import AironeDevice
-from .const import DOMAIN, MODEL_TYPE_LABELS
+from .boiler import BoilerDevice
+from .const import DOMAIN, MODEL_TYPE_LABELS, SIGNAL_BOILER_READY
 from .coordinator import NavienSmartCoordinator
 from .models import NavienDevice
 
@@ -143,3 +148,69 @@ class AironeMonitorEntity(CoordinatorEntity[NavienSmartCoordinator]):
     def available(self) -> bool:
         device = self.device
         return super().available and device is not None and device.available
+
+
+class BoilerEntity(CoordinatorEntity[NavienSmartCoordinator]):
+    """보일러 엔티티 베이스 (v0.22.0 베타).
+
+    **`serial_number` 를 채우지 않는다.** 보일러 `deviceId` 앞 12자는 MAC 이다 —
+    기기 정보는 진단·스크린샷으로 쉽게 밖에 나간다.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator)
+        self._device_id = boiler.device_id
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, boiler.device_id)},
+            manufacturer="경동나비엔",
+            name=boiler.nickname,
+            model=f"{boiler.model_name} (베타)",
+            model_id=boiler.model_code or None,
+        )
+
+    @property
+    def boiler(self) -> BoilerDevice | None:
+        return self.coordinator.boilers.get(self._device_id)
+
+    @property
+    def available(self) -> bool:
+        boiler = self.boiler
+        return (
+            super().available
+            and boiler is not None
+            and boiler.available
+            and bool(boiler.status or boiler.rooms)
+        )
+
+
+def async_track_boilers(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: NavienSmartCoordinator,
+    make: Callable[[BoilerDevice], list[Any]],
+    async_add_entities: Callable[[list[Any]], None],
+) -> None:
+    """보일러 엔티티는 **기능 목록이 들어온 뒤에** 더한다.
+
+    플랫폼은 MQTT 가 붙기 전에 준비된다. 그때는 보일러가 실내난방을 지원하는지,
+    방이 몇 개인지 모른다. 기능 목록(`status/start` 응답)이 처음 들어오면
+    코디네이터가 알리고, 그때 만든다.
+    """
+    added: set[str] = set()
+
+    @callback
+    def _add(device_id: str) -> None:
+        boiler = coordinator.boilers.get(device_id)
+        if boiler is None or not boiler.feature or device_id in added:
+            return
+        added.add(device_id)
+        if entities := make(boiler):
+            async_add_entities(entities)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_BOILER_READY.format(entry.entry_id), _add)
+    )
+    for device_id in list(coordinator.boilers):
+        _add(device_id)

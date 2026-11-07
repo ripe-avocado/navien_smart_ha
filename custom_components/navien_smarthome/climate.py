@@ -24,12 +24,25 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
-from .const import MODE_HEAT, ZONE_NAMES
+from .boiler import BoilerDevice
+from .const import (
+    BOILER_CMD_GOOUT,
+    BOILER_CMD_INSIDE,
+    BOILER_CMD_ONDOL,
+    BOILER_CMD_POWER_OFF,
+    BOILER_CMD_POWER_ON,
+    BOILER_MODE_GOOUT,
+    BOILER_MODE_INSIDE,
+    BOILER_MODE_ONDOL,
+    MODE_HEAT,
+    ZONE_NAMES,
+)
 from .coordinator import NavienSmartCoordinator
-from .entity import NavienSmartEntity
+from .entity import BoilerEntity, NavienSmartEntity, async_track_boilers
 from .models import NavienDevice
 
 
@@ -48,6 +61,13 @@ async def async_setup_entry(
             NavienSmartThermostat(coordinator, device, zone) for zone in device.zones
         )
     async_add_entities(entities)
+    async_track_boilers(
+        hass,
+        entry,
+        coordinator,
+        lambda b: [BoilerThermostat(coordinator, b)] if coordinator.boiler_controllable(b) else [],
+        async_add_entities,
+    )
 
 
 class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
@@ -251,3 +271,170 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
         # 내려야 기기가 받는다. 남는 구역이 없으면 싱글은 전원을 끄고 좌우 분리는
         # 막는다 — 판단은 `build_zone_off` 안에 있다.
         await self.coordinator.async_send(device, device.build_zone_off(zones))
+
+
+# -- 보일러 (v0.22.0 베타, 실험 설정을 켠 NR-6x 만) ---------------------------
+
+# 프리셋 이름 → (기능 Use 이름, operationMode)
+_BOILER_PRESETS = (
+    ("실내난방", "inside", BOILER_MODE_INSIDE),
+    ("온돌난방", "ondol", BOILER_MODE_ONDOL),
+    ("외출", "goout", BOILER_MODE_GOOUT),
+)
+
+
+class BoilerThermostat(BoilerEntity, ClimateEntity):
+    """보일러 난방. 명령 형식은 앱 코드로 확인했고 **실기기로는 확인 전이다.**
+
+    온도를 바꾸면 그 난방 방식(실내/온돌)의 설정값이 바뀐다 — 앱의 슬라이더와
+    같은 명령이다 (`inside-heat` · `ondol-heat`). 외출 중에 온도를 바꾸면 그
+    난방으로 돌아간다(앱과 같은 명령이라 그렇게 될 것으로 본다 — 확인 전).
+    """
+
+    _attr_name = "난방"
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator, boiler)
+        self._attr_unique_id = f"{boiler.device_id}_boiler_thermostat"
+        self._presets = [name for name, use, _ in _BOILER_PRESETS if boiler.supports(use)]
+        features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
+        if self._presets:
+            features |= ClimateEntityFeature.PRESET_MODE
+            self._attr_preset_modes = list(self._presets)
+        self._attr_supported_features = features
+
+    def _kind(self, boiler: BoilerDevice) -> str | None:
+        """온도를 맞추는 대상 — 지금 모드가 실내면 실내, 온돌이면 온돌.
+
+        그 밖의 모드(외출·예약 등)면 온돌을 먼저 본다. #14 · #20 의 NR-67D 처럼
+        실내난방이 없는 기기가 있기 때문이다.
+        """
+        mode = boiler.operation_mode
+        if mode == BOILER_MODE_INSIDE and boiler.supports("inside"):
+            return "inside"
+        if mode == BOILER_MODE_ONDOL and boiler.supports("ondol"):
+            return "ondol"
+        if boiler.supports("ondol"):
+            return "ondol"
+        return "inside" if boiler.supports("inside") else None
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        boiler = self.boiler
+        on = None if boiler is None else boiler.is_on
+        if on is None:
+            return None
+        return HVACMode.HEAT if on else HVACMode.OFF
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        boiler = self.boiler
+        if boiler is None or boiler.is_on is None:
+            return None
+        if not boiler.is_on:
+            return HVACAction.OFF
+        if boiler.operation_mode in (BOILER_MODE_INSIDE, BOILER_MODE_ONDOL):
+            return HVACAction.HEATING
+        return HVACAction.IDLE
+
+    @property
+    def preset_mode(self) -> str | None:
+        boiler = self.boiler
+        mode = None if boiler is None else boiler.operation_mode
+        name = next((n for n, _, m in _BOILER_PRESETS if m == mode), None)
+        return name if name in self._presets else None
+
+    @property
+    def current_temperature(self) -> float | None:
+        boiler = self.boiler
+        return None if boiler is None else boiler.value("insideTemperature")
+
+    @property
+    def target_temperature(self) -> float | None:
+        boiler = self.boiler
+        kind = None if boiler is None else self._kind(boiler)
+        return None if kind is None else boiler.value(f"{kind}TemperatureSetting")
+
+    @property
+    def target_temperature_step(self) -> float:
+        boiler = self.boiler
+        return 0.5 if boiler is not None and self._kind(boiler) == "inside" else 1.0
+
+    @property
+    def min_temp(self) -> float:
+        boiler = self.boiler
+        kind = None if boiler is None else self._kind(boiler)
+        found = None if kind is None else boiler.temperature_range(kind)
+        return found[0] if found else 10.0
+
+    @property
+    def max_temp(self) -> float:
+        boiler = self.boiler
+        kind = None if boiler is None else self._kind(boiler)
+        found = None if kind is None else boiler.temperature_range(kind)
+        return found[1] if found else 85.0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        boiler = self.boiler
+        if boiler is None:
+            return None
+        return {"operation_mode": boiler.mode_name(boiler.operation_mode), "beta": True}
+
+    def _require(self) -> BoilerDevice:
+        boiler = self.boiler
+        if boiler is None or not boiler.status:
+            raise HomeAssistantError("보일러 상태를 아직 받지 못했습니다.")
+        return boiler
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        boiler = self._require()
+        temperature = kwargs.get("temperature")
+        hvac_mode = kwargs.get(ATTR_HVAC_MODE)
+        if hvac_mode == HVACMode.OFF:
+            await self.async_set_hvac_mode(HVACMode.OFF)
+            return
+        if temperature is None:
+            return
+        if not boiler.is_on:
+            # 꺼진 보일러에 난방 명령을 보내면 켜질 수 있다 — 묻지 않고 켜지 않는다.
+            if hvac_mode != HVACMode.HEAT:
+                raise HomeAssistantError("보일러가 꺼져 있습니다. 먼저 켜 주세요.")
+            await self.async_set_hvac_mode(HVACMode.HEAT)
+        kind = self._kind(boiler)
+        if kind is None:
+            raise HomeAssistantError("이 보일러는 실내·온돌 온도 설정을 지원하지 않습니다.")
+        command = BOILER_CMD_INSIDE if kind == "inside" else BOILER_CMD_ONDOL
+        await self.coordinator.async_boiler_control(
+            boiler, command, [boiler.encode(float(temperature))]
+        )
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        boiler = self._require()
+        command = BOILER_CMD_POWER_OFF if hvac_mode == HVACMode.OFF else BOILER_CMD_POWER_ON
+        await self.coordinator.async_boiler_control(boiler, command, [])
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        boiler = self._require()
+        if preset_mode not in self._presets:
+            raise HomeAssistantError(f"지원하지 않는 모드입니다: {preset_mode}")
+        if preset_mode == "외출":
+            await self.coordinator.async_boiler_control(boiler, BOILER_CMD_GOOUT, [])
+            return
+        # 모드를 바꿀 때는 그 모드의 **지금 설정값**을 그대로 싣는다. 받은 값이
+        # 이미 기기 단위(NR-6x ×2)라 다시 바꾸지 않는다.
+        key, command = (
+            ("insideTemperatureSetting", BOILER_CMD_INSIDE)
+            if preset_mode == "실내난방"
+            else ("ondolTemperatureSetting", BOILER_CMD_ONDOL)
+        )
+        raw = boiler.status.get(key)
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            raise HomeAssistantError("그 모드의 설정 온도를 아직 받지 못했습니다.")
+        await self.coordinator.async_boiler_control(boiler, command, [float(raw)])

@@ -518,8 +518,13 @@ class NavienSmartApi:
         device: dict[str, Any],
         client_id: str,
         request: tuple[str, str, int],
+        mode: str | None = None,
+        param: list[Any] | None = None,
     ) -> dict[str, Any]:
-        """보일러 상태 요청을 중계한다. **읽기 요청만 다룬다** — `mode`·`param` 이 비어 있다.
+        """보일러 요청을 중계한다. 읽기는 `mode` 없이, 제어는 `mode`·`param` 을 싣는다.
+
+        제어 봉투도 앱과 같다 — `mode` 가 없으면 키를 빼고(Gson 은 null 을 안 쓴다),
+        있으면 `param` 앞에 둔다 (`InternalControlRequest`).
 
         봉투는 앱 Gson 출력과 같다 (`GetStatusData.RequestControl` /
         `RequestControlNR35D`). 대문자 `ID` 다 — 에어원의 `clientId` 와 다르다.
@@ -536,8 +541,10 @@ class NavienSmartApi:
             "macAddress": device_id[:12],
             "registerAt": now,
             "additionalValue": device_id[12:16],
-            "param": [],
         }
+        if mode is not None:
+            inner["mode"] = mode
+        inner["param"] = list(param or [])
         payload: dict[str, Any] = {
             "sessionID": now,
             "clientID": f"mobile-{client_id}",

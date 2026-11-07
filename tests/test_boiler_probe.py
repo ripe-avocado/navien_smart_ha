@@ -119,6 +119,13 @@ probe = SimpleNamespace(
 )
 probe.boiler_targets = NavienSmartCoordinator.boiler_targets.fget(probe)
 probe._boiler_record = lambda device_id: NavienSmartCoordinator._boiler_record(probe, device_id)
+# 해석(v0.22.0 베타)은 test_boiler_beta.py 가 본다. 여기서는 기록만 본다.
+probe._apply_boiler_message = lambda device_id, body: None
+probe.boilers = {}
+probe.boiler_control_enabled = False
+probe.boiler_stats = {}
+probe.boiler_commands = []
+probe.boiler_controllable = lambda boiler: False
 real_sleep = coord_mod.asyncio.sleep
 coord_mod.asyncio.sleep = no_sleep
 try:

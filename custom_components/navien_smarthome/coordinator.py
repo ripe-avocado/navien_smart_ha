@@ -14,8 +14,9 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.debounce import Debouncer
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -28,6 +29,7 @@ from .api import (
 from homeassistant.helpers.storage import Store
 
 from .airone import AironeDevice, _dig
+from .boiler import BoilerDevice
 from .const import (
     AIRONE_AIR_ERROR_LOG_EVERY,
     AIRONE_CMD_CHANGE_MODE,
@@ -37,6 +39,7 @@ from .const import (
     AIRONE_SILENCE_CHECK_SECONDS,
     AIRONE_TOPIC_FMT,
     AIRONE_UPDATE_INTERVAL_SECONDS,
+    BOILER_CONTROL_MODELS,
     BOILER_KEEP_FIRST,
     BOILER_KEEP_MESSAGES,
     BOILER_MGPP_MODELS,
@@ -44,7 +47,9 @@ from .const import (
     BOILER_PREFIX,
     BOILER_REQ_START,
     BOILER_REQ_STATUS,
+    BOILER_STALE_SECONDS,
     BOILER_STATUS_DELAY_SECONDS,
+    CONF_BOILER_CONTROL,
     DOMAIN,
     MIN_REFRESH_COOLDOWN_SECONDS,
     MODELS_AFTER_2024,
@@ -54,6 +59,7 @@ from .const import (
     SERVICE_AIRONE,
     SERVICE_BOILER,
     SERVICE_NAMES,
+    SIGNAL_BOILER_READY,
     SUPPORTED_SERVICE_CODES,
     TOPIC_PREFIX,
     UPDATE_INTERVAL_SECONDS,
@@ -142,6 +148,13 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         self.boiler_probe: dict[str, dict[str, list[dict[str, Any]]]] = {}
         # 설치(재시작)당 한 번만 묻는다. MQTT 가 다시 붙을 때마다 묻지 않는다.
         self._boiler_probed = False
+        # 보일러 베타 (v0.22.0). 기기목록에 상태가 없어 MQTT 응답에서 채운다.
+        self.boilers: dict[str, BoilerDevice] = {}
+        # 오래 조용해서 다시 물은 시각. 답이 없어도 폴링마다 묻지 않게 한다.
+        self._boiler_asked_at: dict[str, float] = {}
+        # 진단용 집계 — 개수와 보낸 명령(모드·값)뿐이다. 식별자는 없다.
+        self.boiler_stats: dict[str, int] = {"polls": 0, "control_fail": 0}
+        self.boiler_commands: list[dict[str, Any]] = []
         # **폴링이 돌기는 하는지**를 남긴다.
         #
         # 이슈 #1 에서 공기질 값이 열 시간 동안 그대로였는데, 조회 실패도 빈 응답도
@@ -264,6 +277,17 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             devices[device.device_id] = device
 
         self.airone = airone
+
+        previous_boilers = self.boilers
+        boilers: dict[str, BoilerDevice] = {}
+        for raw in self.boiler_targets:
+            boiler = BoilerDevice(raw)
+            if (old := previous_boilers.get(boiler.device_id)) is not None:
+                boiler.carry_over(old)
+            boilers[boiler.device_id] = boiler
+        self.boilers = boilers
+        self._ask_quiet_boilers()
+
         self._tune_interval()
         await self._async_update_air_sensors()
         self.poll_stamp = time.monotonic()
@@ -446,6 +470,15 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             return
         self._skipped_logged.add(key)
         name = SERVICE_NAMES.get(service_code, f"serviceCode {service_code}")
+
+        if raw in self.boiler_targets:
+            _LOGGER.info(
+                "%s (modelName=%s) 를 베타로 연결합니다 — 상태 보기. "
+                "제어는 통합 설정의 '보일러 제어 (실험)' 에서 켭니다.",
+                name,
+                raw.get("modelName"),
+            )
+            return
 
         if service_code in REPORT_WANTED_SERVICE_CODES:
             _LOGGER.warning(
@@ -657,10 +690,105 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         message = {"at": round(time.monotonic(), 1), "topic": topic, "body": body}
         if len(record["first"]) < BOILER_KEEP_FIRST:
             record["first"].append(message)
+        else:
+            received = record["received"]
+            received.append(message)
+            del received[:-BOILER_KEEP_MESSAGES]
+        self._apply_boiler_message(device_id, body)
+
+    @callback
+    def _apply_boiler_message(self, device_id: str, body: Any) -> None:
+        """응답에 든 기능·상태를 반영한다. 봉투는 `{topic, payload: {response}}`."""
+        boiler = self.boilers.get(device_id)
+        if boiler is None or not isinstance(body, dict):
             return
-        received = record["received"]
-        received.append(message)
-        del received[:-BOILER_KEEP_MESSAGES]
+        if str(body.get("topic") or "").endswith("controlfail"):
+            self.boiler_stats["control_fail"] += 1
+            _LOGGER.warning("%s 가 명령을 거절했습니다 (controlfail)", boiler.nickname)
+        payload = body.get("payload")
+        response = payload.get("response") if isinstance(payload, dict) else None
+        if not isinstance(response, dict):
+            return
+        if boiler.apply_response(response):
+            # 무엇을 지원하는지 이제 안다. 플랫폼이 엔티티를 더한다.
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_BOILER_READY.format(self.config_entry.entry_id),
+                device_id,
+            )
+        self._async_push_update(self.data or {})
+
+    def _ask_quiet_boilers(self) -> None:
+        """오래 조용한 보일러에만 상태를 묻는다.
+
+        상태가 바뀌면 보일러가 스스로 보낸다 (#20). 그래서 폴링마다 묻지 않고,
+        `BOILER_STALE_SECONDS` 동안 아무것도 안 온 보일러에만 한 번 묻는다.
+        처음 붙을 때는 `_async_probe_boilers` 가 묻는다.
+        """
+        if not self._boiler_probed or not self.mqtt_connected:
+            return
+        now = time.monotonic()
+        for boiler in self.boilers.values():
+            last = max(
+                boiler.last_message_at or 0.0,
+                self._boiler_asked_at.get(boiler.device_id, 0.0),
+            )
+            if now - last < BOILER_STALE_SECONDS:
+                continue
+            self._boiler_asked_at[boiler.device_id] = now
+            self.boiler_stats["polls"] += 1
+            self.hass.async_create_background_task(
+                self._async_ask_boiler(boiler), name="navien_smart_boiler_status"
+            )
+
+    async def _async_ask_boiler(self, boiler: BoilerDevice) -> None:
+        """기능 목록이 없으면 start 부터, 있으면 status 만 묻는다."""
+        requests = [BOILER_REQ_STATUS] if boiler.feature else [BOILER_REQ_START, BOILER_REQ_STATUS]
+        for index, request in enumerate(requests):
+            if index:
+                await asyncio.sleep(BOILER_STATUS_DELAY_SECONDS)
+            try:
+                await self.api.async_boiler_request(
+                    self.home_seq, boiler.raw, self.mqtt_client_id, request
+                )
+            except NavienSmartError as err:
+                _LOGGER.debug("%s 상태 요청 실패: %s", boiler.nickname, err)
+                return
+
+    # -- 보일러 제어 (실험) --------------------------------------------------
+
+    @property
+    def boiler_control_enabled(self) -> bool:
+        """통합 설정의 「보일러 제어 (실험)」. 기본은 꺼짐."""
+        return bool(self.config_entry.options.get(CONF_BOILER_CONTROL, False))
+
+    def boiler_controllable(self, boiler: BoilerDevice) -> bool:
+        return self.boiler_control_enabled and boiler.model_code in BOILER_CONTROL_MODELS
+
+    async def async_boiler_control(
+        self, boiler: BoilerDevice, command: tuple[str, int], param: list[Any]
+    ) -> None:
+        """명령 하나를 보낸다. 결과는 보일러가 보내는 상태 방송으로 돌아온다."""
+        if not self.boiler_controllable(boiler):
+            raise HomeAssistantError(
+                "보일러 제어가 꺼져 있습니다. 통합 설정의 '보일러 제어 (실험)' 을 켜 주세요."
+            )
+        mode, code = command
+        self.boiler_commands.append(
+            {"at": round(time.monotonic(), 1), "mode": mode, "param": list(param)}
+        )
+        del self.boiler_commands[:-BOILER_KEEP_MESSAGES]
+        try:
+            await self.api.async_boiler_request(
+                self.home_seq,
+                boiler.raw,
+                self.mqtt_client_id,
+                ("control", "res", code),
+                mode=mode,
+                param=param,
+            )
+        except NavienSmartError as err:
+            raise HomeAssistantError(f"보일러에 명령을 보내지 못했습니다: {err}") from err
 
     async def async_stop_mqtt(self) -> None:
         if self._mqtt is not None:
