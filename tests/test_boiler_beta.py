@@ -29,9 +29,9 @@ from navien_smarthome.const import (  # noqa: E402
     CONF_BOILER_CONTROL,
 )
 from navien_smarthome.coordinator import NavienSmartCoordinator  # noqa: E402
-from navien_smarthome.diagnostics import _boilers_view  # noqa: E402
-from navien_smarthome.number import BoilerHotWaterNumber  # noqa: E402
+from navien_smarthome.diagnostics import _boilers_view, _scrub  # noqa: E402
 from navien_smarthome.sensor import boiler_sensors  # noqa: E402
+from navien_smarthome.water_heater import BoilerWaterHeater  # noqa: E402
 from homeassistant.exceptions import HomeAssistantError  # noqa: E402
 
 r = Report()
@@ -281,16 +281,16 @@ r.ok(raises(t3.async_set_temperature(temperature=45)) and calls == [],
 asyncio.run(t3.async_set_temperature(temperature=45, hvac_mode="heat"))
 r.ok([c[1] for c in calls] == ["power-on", "ondol-heat"], f"hvac_mode heat 를 주면 켜고 맞춘다: {calls}")
 
-r.section("온수 온도 조절 — NR-6x")
+r.section("온수 — NR-6x (v0.23.0 부터 온수기 엔티티)")
 
 c = control_coord(True, {ID_20: b20})
-number = BoilerHotWaterNumber(c, b20)
-number.coordinator = c
-r.ok(number.native_value == 41.0, "82 → 41℃")
-r.ok((number._attr_native_min_value, number._attr_native_max_value) == (30.0, 60.0), "범위 30~60℃")
+heater = BoilerWaterHeater(c, b20)
+heater.coordinator = c
+r.ok(heater.target_temperature == 41.0 and heater.current_temperature == 35.5, "설정 82 → 41℃ · 지금 71 → 35.5℃")
+r.ok((heater._attr_min_temp, heater._attr_max_temp) == (30.0, 60.0), "범위 30~60℃")
 calls.clear()
-asyncio.run(number.async_set_native_value(45))
-r.ok(calls[-1][1:] == ("hotwater-temperature", [90.0]), f"45℃ → 90.0: {calls[-1]}")
+asyncio.run(heater.async_set_temperature(temperature=42))
+r.ok(calls[-1][1:] == ("hotwater-temperature", [84.0]), f"42℃ → 84.0 (#20 실기기와 같은 값): {calls[-1]}")
 
 r.section("센서")
 
@@ -326,5 +326,11 @@ text = repr(view)
 r.ok(ID_20 not in text and ID_20[:12] not in text, "deviceId · MAC 이 안 남는다")
 r.ok(view["devices"][0]["status"]["ondolTemperatureSetting"] == 80, "상태 원본을 담는다")
 r.ok(view["control_enabled"] is False and view["devices"][0]["controllable"] is False, "제어 설정을 담는다")
+
+# 휴대폰 앱의 접속 ID — 앱을 열면 앱 앞으로 가는 응답 토픽에 실려 들어온다 (#20).
+app_id = "-".join(["9" * 8, "8" * 4, "7" * 4, "6" * 4, "5" * 12]) + "-U12345"
+scrubbed = _scrub({"topic": f"cmd/20/k/mobile-{app_id}/res/start"}, [])
+r.ok(scrubbed["topic"] == "cmd/20/k/mobile-**REDACTED**/res/start",
+     f"남의 접속 ID · 회원번호도 모양으로 지운다: {scrubbed['topic']}")
 
 sys.exit(r.finish())

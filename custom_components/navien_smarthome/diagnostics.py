@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -246,10 +247,17 @@ def _identifiers(raw_devices: list[dict[str, Any]]) -> list[str]:
     return sorted(found, key=len, reverse=True)
 
 
+# **누구 것이든 MQTT 접속 ID 는 지운다** (v0.23.0). 모양은 `{uuid}-U{회원번호}`.
+# 우리 것만 지우고 있었는데, 사용자가 휴대폰 앱을 열면 앱 앞으로 가는 보일러
+# 응답도 우리 구독에 들어와 기록된다 — 그 토픽에 **앱의 접속 ID 와 나비엔 회원번호**가
+# 실려 공개 이슈에 올라갔다 (#20). 값을 미리 알 수 없으니 모양으로 지운다.
+_CLIENT_ID = re.compile(
+    r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?:-U\d+)?"
+)
+
+
 def _scrub(value: Any, secrets: list[str]) -> Any:
     """결과 전체를 훑어 식별자 문자열을 지운다."""
-    if not secrets:
-        return value
     if isinstance(value, dict):
         return {key: _scrub(inner, secrets) for key, inner in value.items()}
     if isinstance(value, list):
@@ -258,7 +266,7 @@ def _scrub(value: Any, secrets: list[str]) -> Any:
         for secret in secrets:
             if secret in value:
                 value = value.replace(secret, "**REDACTED**")
-        return value
+        return _CLIENT_ID.sub("**REDACTED**", value)
     return value
 
 

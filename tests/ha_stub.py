@@ -66,12 +66,14 @@ stub(
         BINARY_SENSOR="binary_sensor",
         NUMBER="number",
         BUTTON="button",
+        WATER_HEATER="water_heater",
     ),
     ATTR_TEMPERATURE="temperature",
     PERCENTAGE="%",
     CONCENTRATION_PARTS_PER_MILLION="ppm",
     CONCENTRATION_MICROGRAMS_PER_CUBIC_METER="µg/m³",
     UnitOfTemperature=enum(CELSIUS="°C", FAHRENHEIT="°F"),
+    PRECISION_WHOLE=1.0,
     UnitOfTime=enum(MINUTES="min", SECONDS="s"),
 )
 stub(
@@ -163,6 +165,12 @@ stub(
     ClimateEntityFeature=enum(TARGET_TEMPERATURE=1, TURN_ON=2, TURN_OFF=4, PRESET_MODE=8),
     HVACMode=enum(HEAT="heat", OFF="off", COOL="cool"),
     HVACAction=enum(HEATING="heating", IDLE="idle", OFF="off", COOLING="cooling"),
+)
+stub(
+    "homeassistant.components.water_heater",
+    pkg=True,
+    WaterHeaterEntity=Base,
+    WaterHeaterEntityFeature=enum(TARGET_TEMPERATURE=1),
 )
 stub("homeassistant.components.diagnostics", pkg=True, async_redact_data=lambda d, k: d)
 stub("voluptuous", Schema=Base, Required=Base, Optional=Base)

@@ -1,4 +1,4 @@
-"""에어원 목표 습도, 보일러 온수 온도 (v0.22.0 베타, 실험 설정).
+"""에어원 목표 습도.
 
 제습·환기제습에서만 쓴다. **범위를 코드에 적지 않는다** — 서버가 운전 조합마다
 `additionalData` 의 `min`/`max` 를 알려주므로 그것만 쓴다. 안 알려주면 만들지 않는다.
@@ -12,16 +12,14 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice
-from .boiler import BoilerDevice
-from .const import AIRONE_HUMIDITY_STEP, AIRONE_OPTION_NONE, BOILER_CMD_HOTWATER
+from .const import AIRONE_HUMIDITY_STEP, AIRONE_OPTION_NONE
 from .coordinator import NavienSmartCoordinator
-from .entity import AironeEntity, BoilerEntity, async_track_boilers
+from .entity import AironeEntity
 
 
 async def async_setup_entry(
@@ -35,19 +33,6 @@ async def async_setup_entry(
         for device in coordinator.airone.values()
         # 어떤 조합에서든 서버가 습도 범위를 알려줄 때만 만든다.
         if any(mode.wants_humidity for mode in device.modes)
-    )
-    async_track_boilers(
-        hass,
-        entry,
-        coordinator,
-        lambda b: (
-            [BoilerHotWaterNumber(coordinator, b)]
-            if coordinator.boiler_controllable(b)
-            and b.supports("hotWaterTemperatureSetting")
-            and b.temperature_range("hotWater")
-            else []
-        ),
-        async_add_entities,
     )
 
 
@@ -115,34 +100,4 @@ class AironeHumidityNumber(AironeEntity, NumberEntity):
         option = AIRONE_OPTION_NONE if device.option is None else device.option
         await self.coordinator.async_airone_mode(
             device, device.mode, option, humidity=target
-        )
-
-
-class BoilerHotWaterNumber(BoilerEntity, NumberEntity):
-    """온수 설정 온도. 실험 설정을 켠 NR-6x 만 (`hotwater-temperature`)."""
-
-    _attr_name = "온수 온도 조절"
-    _attr_icon = "mdi:water-thermometer"
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_native_step = 1.0
-    _attr_mode = NumberMode.BOX
-
-    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
-        super().__init__(coordinator, boiler)
-        self._attr_unique_id = f"{boiler.device_id}_boiler_hotwater"
-        low, high = boiler.temperature_range("hotWater") or (30.0, 60.0)
-        self._attr_native_min_value = low
-        self._attr_native_max_value = high
-
-    @property
-    def native_value(self) -> float | None:
-        boiler = self.boiler
-        return None if boiler is None else boiler.value("hotWaterTemperatureSetting")
-
-    async def async_set_native_value(self, value: float) -> None:
-        boiler = self.boiler
-        if boiler is None:
-            return
-        await self.coordinator.async_boiler_control(
-            boiler, BOILER_CMD_HOTWATER, [boiler.encode(value)]
         )

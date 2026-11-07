@@ -29,6 +29,8 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
+    # 보일러 온수 (실험 설정을 켠 NR-6x 만).
+    Platform.WATER_HEATER,
 ]
 
 NavienSmartConfigEntry = ConfigEntry[NavienSmartCoordinator]
