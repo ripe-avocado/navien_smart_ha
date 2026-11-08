@@ -40,7 +40,7 @@ TO_REDACT = {
     "refreshToken",
     "accountId",
     # `deviceId` 뒤 4자. 보일러 요청·응답에 이 키로 실린다 — 8자 미만이라 `_scrub` 의
-    # 값 지우기에 안 걸린다 (#14 제보자 제안, v0.23.1).
+    # 값 지우기에 안 걸린다 (#14 제보자 제안, v0.24.0).
     "additionalValue",
     # 보일러 `did` 는 대문자 `clientID` 로 온다. 값이 `roomcon-<MAC>` 이다.
     "boilerControllerSerialNumber",
@@ -49,6 +49,11 @@ TO_REDACT = {
     "defaultClientId",
     "deviceId",
     "eventId",
+    # 집(공간) · 회원 · 룸콘 순번. 짧은 숫자라 값 지우기로는 못 잡는다 — 키로 막는다 (v0.25.0).
+    "homeSeq",
+    "userSeq",
+    "roomControllerSeq",
+    "roomContorllerSeq",
     "localIp",
     "mac",
     "macAddress",
@@ -259,6 +264,12 @@ _CLIENT_ID = re.compile(
 )
 
 
+# **MQTT 토픽 맨 앞의 집 번호(homeSeq)도 지운다** (v0.25.0). 보일러 기록의 토픽이
+# `{homeSeq}/smarttok/...` 모양인데, 5~6자리 숫자라 위 값 지우기(8자 이상)에 안 걸렸다.
+# 공개 이슈에 그대로 올라갔다 (#20 #26 #28). 모양 `(숫자)/(접두사)` 로 지운다.
+_HOME_TOPIC = re.compile(r"\b\d+/(smarttok|mate|airone|scada|homeauto)(?=/|$)")
+
+
 def _scrub(value: Any, secrets: list[str]) -> Any:
     """결과 전체를 훑어 식별자 문자열을 지운다."""
     if isinstance(value, dict):
@@ -269,7 +280,8 @@ def _scrub(value: Any, secrets: list[str]) -> Any:
         for secret in secrets:
             if secret in value:
                 value = value.replace(secret, "**REDACTED**")
-        return _CLIENT_ID.sub("**REDACTED**", value)
+        value = _CLIENT_ID.sub("**REDACTED**", value)
+        return _HOME_TOPIC.sub(r"**REDACTED**/\1", value)
     return value
 
 

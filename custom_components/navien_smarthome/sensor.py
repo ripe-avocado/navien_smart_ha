@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -422,6 +422,15 @@ def boiler_sensors(coordinator: NavienSmartCoordinator, boiler: BoilerDevice) ->
         entities.append(
             BoilerTemperatureSensor(coordinator, boiler, "hotWaterTemperature", "온수 온도", measured=True)
         )
+        # v0.25.0 (#29). 값의 뜻 · 배율을 NR-6x 에서만 확인했다 — NR-40D 는 열지 않는다.
+        entities += [
+            BoilerOperatingStateSensor(coordinator, boiler),
+            BoilerTemperatureSensor(coordinator, boiler, "supplyTemperature", "난방수 공급 온도", measured=True),
+            BoilerTemperatureSensor(coordinator, boiler, "returnTemperature", "난방수 환수 온도", measured=True),
+            BoilerOutsideTemperatureSensor(coordinator, boiler),
+        ]
+        if boiler.supports("insideHumidity"):
+            entities.append(BoilerHumiditySensor(coordinator, boiler))
     return entities
 
 
@@ -529,3 +538,59 @@ class BoilerRoomTemperatureSensor(BoilerEntity, SensorEntity):
     def native_value(self) -> float | None:
         boiler = self.boiler
         return None if boiler is None else boiler.room_value(self._room, self._key)
+
+
+class BoilerOperatingStateSensor(BoilerEntity, SensorEntity):
+    """연소 · 대기 · 꺼짐 (`operationBusy`). 「운전 모드」는 고른 모드, 이건 지금 하는 일."""
+
+    _attr_name = "운전 상태"
+    _attr_icon = "mdi:fire"
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator, boiler)
+        self._attr_unique_id = f"{boiler.device_id}_boiler_operating_state"
+
+    @property
+    def native_value(self) -> str | None:
+        boiler = self.boiler
+        return None if boiler is None else boiler.operating_state
+
+
+class BoilerHumiditySensor(BoilerEntity, SensorEntity):
+    """실내조절기가 잰 습도. `insideHumidity` ×10 (#20: 355 → 35.5%)."""
+
+    _attr_name = "실내 습도"
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator, boiler)
+        self._attr_unique_id = f"{boiler.device_id}_boiler_humidity"
+
+    @property
+    def native_value(self) -> float | None:
+        boiler = self.boiler
+        return None if boiler is None else boiler.tenth("insideHumidity")
+
+
+class BoilerOutsideTemperatureSensor(BoilerEntity, SensorEntity):
+    """외기 온도. **보일러가 잰 값이 아니라 지역 기상 관측값이다** (#29: 같은 시각
+    기상청 값과 정확히 같고 늘 정수, 외기 센서가 없는 기기에도 온다). 서버가 날씨를
+    넣어 주는 메시지(`control/weather`)도 우리 기록에 있다. `outsideTemperature` ×10.
+    """
+
+    _attr_name = "외기 온도 (기상 관측)"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator, boiler)
+        self._attr_unique_id = f"{boiler.device_id}_boiler_outside_temperature"
+
+    @property
+    def native_value(self) -> float | None:
+        boiler = self.boiler
+        return None if boiler is None else boiler.tenth("outsideTemperature")

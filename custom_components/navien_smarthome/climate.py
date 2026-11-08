@@ -341,6 +341,11 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
             return None
         if not boiler.is_on:
             return HVACAction.OFF
+        # **불이 붙었을 때만 「난방 중」** (v0.25.0, `operationBusy`). 모드가 온돌이어도
+        # 설정 온도에 닿아 쉬는 동안은 「대기」다. 값이 없으면 예전처럼 모드로 본다.
+        burning = boiler.burning
+        if burning is not None:
+            return HVACAction.HEATING if burning else HVACAction.IDLE
         if boiler.operation_mode in (BOILER_MODE_INSIDE, BOILER_MODE_ONDOL):
             return HVACAction.HEATING
         return HVACAction.IDLE

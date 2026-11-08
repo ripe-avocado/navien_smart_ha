@@ -425,7 +425,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                     _LOGGER.warning(
                         "%s 공기질을 %d회 연속 못 읽었습니다. 화면에 남아 있는 값은 "
                         "그 전에 받은 것입니다 (%s)",
-                        device.nickname,
+                        device.model_name,
                         device.air_sensor_errors,
                         err,
                     )
@@ -616,7 +616,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 await self.api.async_control(self.home_seq, device.raw, {})
                 _LOGGER.debug("%s 에 초기 상태를 요청했습니다", device.nickname)
             except NavienSmartError as err:
-                _LOGGER.warning("%s 초기 상태 요청 실패: %s", device.nickname, err)
+                _LOGGER.warning("%s 초기 상태 요청 실패: %s", device.model_name, err)
 
         for airone in self.airone.values():
             if not airone.available:
@@ -626,7 +626,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 await self._async_airone_request(airone, AIRONE_CMD_STATUS, None)
                 _LOGGER.debug("%s 에 초기 상태를 요청했습니다", airone.nickname)
             except NavienSmartError as err:
-                _LOGGER.warning("%s 초기 상태 요청 실패: %s", airone.nickname, err)
+                _LOGGER.warning("%s 초기 상태 요청 실패: %s", airone.model_name, err)
                 continue
             self._schedule_airone_silence_check(airone)
 
@@ -704,7 +704,8 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             return
         if str(body.get("topic") or "").endswith("controlfail"):
             self.boiler_stats["control_fail"] += 1
-            _LOGGER.warning("%s 가 명령을 거절했습니다 (controlfail)", boiler.nickname)
+            # 별칭이 아니라 모델명을 남긴다 — 사용자가 로그를 이슈에 붙인다.
+            _LOGGER.warning("%s 가 명령을 거절했습니다 (controlfail)", boiler.model_name)
         payload = body.get("payload")
         response = payload.get("response") if isinstance(payload, dict) else None
         if not isinstance(response, dict):
@@ -752,7 +753,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                     self.home_seq, boiler.raw, self.mqtt_client_id, request
                 )
             except NavienSmartError as err:
-                _LOGGER.debug("%s 상태 요청 실패: %s", boiler.nickname, err)
+                _LOGGER.debug("%s 상태 요청 실패: %s", boiler.model_name, err)
                 return
 
     # -- 보일러 제어 ---------------------------------------------------------

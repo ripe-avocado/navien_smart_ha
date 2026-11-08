@@ -22,6 +22,7 @@ from harness import Report
 import navien_smarthome.coordinator as coord_mod  # noqa: E402
 from navien_smarthome.api import NavienSmartApi  # noqa: E402
 from navien_smarthome.boiler import BoilerDevice  # noqa: E402
+from navien_smarthome.binary_sensor import BoilerHotWaterInUse  # noqa: E402
 from navien_smarthome.climate import BoilerThermostat  # noqa: E402
 from navien_smarthome.const import (  # noqa: E402
     BOILER_CMD_ONDOL,
@@ -52,10 +53,12 @@ FEATURE_20 = {"powerUse": 2, "gooutUse": 1, "insideUse": 1, "insideTemperatureMi
               "insideTemperatureMax": 80, "ondolUse": 2, "ondolTemperatureMin": 60,
               "ondolTemperatureMax": 130, "hotWaterTemperatureSettingUse": 2,
               "hotWaterTemperatureMin": 60, "hotWaterTemperatureMax": 120,
-              "boilerControllerSerialNumber": "SERIAL-TEST"}
+              "insideHumidityUse": 2, "boilerControllerSerialNumber": "SERIAL-TEST"}
 STATUS_20 = {"operationMode": 6, "insideTemperature": 45, "insideTemperatureSetting": 50,
              "ondolTemperatureSetting": 80, "hotWaterTemperature": 71,
-             "hotWaterTemperatureSetting": 82, "errorCode": 0}
+             "hotWaterTemperatureSetting": 82, "errorCode": 0, "operationBusy": 2,
+             "supplyTemperature": 93, "returnTemperature": 78, "insideHumidity": 355,
+             "outsideTemperature": 150, "DHWUse": 1}
 # #24 NR-40D
 FEATURE_40 = {"powerUse": 2, "gooutUse": 2, "insideUse": 3, "insideTemperatureMin": 10,
               "insideTemperatureMax": 40, "ondolUse": 3, "ondolTemperatureMin": 40,
@@ -302,7 +305,8 @@ def names(boiler: BoilerDevice) -> list[str]:
     return [e._attr_name for e in boiler_sensors(None, boiler)]
 
 
-r.ok(names(b20) == ["운전 모드", "실내 온도", "오류 코드", "온돌 설정 온도", "온수 설정 온도", "온수 온도"],
+r.ok(names(b20) == ["운전 모드", "실내 온도", "오류 코드", "온돌 설정 온도", "온수 설정 온도", "온수 온도",
+                    "운전 상태", "난방수 공급 온도", "난방수 환수 온도", "외기 온도 (기상 관측)", "실내 습도"],
      f"NR-6x (실내난방 없음): {names(b20)}")
 r.ok(names(b40) == ["운전 모드", "실내 온도", "오류 코드", "실내 설정 온도", "온돌 설정 온도", "온수 설정 온도"],
      f"NR-40D (현재 온수 온도 없음): {names(b40)}")
@@ -319,6 +323,34 @@ mode_sensor = boiler_sensors(None, b20)[0]
 mode_sensor.coordinator = SimpleNamespace(boilers={ID_20: b20})
 r.ok(mode_sensor.native_value == "온돌난방", "운전 모드 6 = 온돌난방")
 r.ok(BoilerDevice.mode_name(99) == "알 수 없음(99)", "모르는 모드는 숫자를 그대로 보인다")
+
+r.section("연소 상태 · 추가 값 (v0.25.0, #29)")
+
+by_name = {e._attr_name: e for e in boiler_sensors(None, b20)}
+for entity in by_name.values():
+    entity.coordinator = SimpleNamespace(boilers={ID_20: b20})
+r.ok(by_name["운전 상태"].native_value == "연소", "operationBusy 2 = 연소")
+r.ok(by_name["난방수 공급 온도"].native_value == 46.5 and by_name["난방수 환수 온도"].native_value == 39.0,
+     "공급 93 → 46.5℃ · 환수 78 → 39℃ (설정 온도와 같은 ×2)")
+r.ok(by_name["실내 습도"].native_value == 35.5, "습도 355 → 35.5% (×10)")
+r.ok(by_name["외기 온도 (기상 관측)"].native_value == 15.0, "외기 150 → 15℃ (×10)")
+r.ok("실내 습도" not in names(b40) and "운전 상태" not in names(b40), "NR-40D 에는 열지 않는다 (배율 미확인)")
+
+idle = ready(ID_20, "20", "NR-67D", FEATURE_20, {**STATUS_20, "operationBusy": 1})
+off_b = ready(ID_20, "20", "NR-67D", FEATURE_20, {**STATUS_20, "operationMode": 1})
+odd = ready(ID_20, "20", "NR-67D", FEATURE_20, {**STATUS_20, "operationBusy": 7})
+r.ok((idle.operating_state, off_b.operating_state, odd.operating_state) == ("대기", "꺼짐", None),
+     "1 = 대기, 꺼진 보일러 = 꺼짐, 모르는 값은 비운다")
+r.ok(thermostat(b20).hvac_action == "heating" and thermostat(idle).hvac_action == "idle",
+     "난방 표시는 불이 붙었을 때만 「난방 중」, 쉬면 「대기」")
+r.ok(thermostat(off_b).hvac_action == "off", "꺼지면 꺼짐")
+
+dhw = BoilerHotWaterInUse(None, b20)
+dhw.coordinator = SimpleNamespace(boilers={ID_20: b20})
+r.ok(dhw.is_on is False, "DHWUse 1 = 온수 안 씀")
+using = ready(ID_20, "20", "NR-67D", FEATURE_20, {**STATUS_20, "DHWUse": 2})
+dhw.coordinator = SimpleNamespace(boilers={ID_20: using})
+r.ok(dhw.is_on is True, "DHWUse 2 = 온수 사용 중")
 
 r.section("진단")
 

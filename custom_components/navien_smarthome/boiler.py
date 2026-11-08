@@ -135,6 +135,36 @@ class BoilerDevice:
         """온도 값 하나를 ℃ 로."""
         return self.celsius(self.status.get(key))
 
+    def tenth(self, key: str) -> float | None:
+        """×10 으로 오는 값 (NR-6x 의 실내 습도 · 외기 온도). 기종 배율과 상관없다."""
+        number = _number(self.status.get(key))
+        return None if number is None else number / 10
+
+    @property
+    def burning(self) -> bool | None:
+        """지금 불이 붙어 있는가 — `operationBusy` 2 = 연소, 1 = 대기 (v0.25.0).
+
+        `operationMode` 는 실내조절기에서 **고른** 모드라, 그것만으로는 지금 데우는
+        중인지 알 수 없다. #29(포크 운영자, NR-67D)가 앱 2.10.4 의 modelCode 20 화면
+        로직 · 설명서 · 실측(1 일 때 난방수 온도 그대로, 2 로 바뀐 뒤 공급·환수 온도가
+        함께 오름)으로 맞춰 알려 주었다. 그 밖의 값은 추측하지 않고 None.
+        """
+        busy = _number(self.status.get("operationBusy"))
+        if busy == 2:
+            return True
+        if busy == 1:
+            return False
+        return None
+
+    @property
+    def operating_state(self) -> str | None:
+        if self.is_on is False:
+            return "꺼짐"
+        burning = self.burning
+        if burning is None:
+            return None
+        return "연소" if burning else "대기"
+
     def room_value(self, ordering: int, key: str) -> float | None:
         return self.celsius((self.rooms.get(ordering) or {}).get(key))
 

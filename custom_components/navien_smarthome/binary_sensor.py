@@ -1,4 +1,4 @@
-"""고온경고와 실시간 연결 상태."""
+"""고온경고와 실시간 연결 상태, 보일러 온수 사용 중."""
 
 from __future__ import annotations
 
@@ -11,8 +11,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice
+from .boiler import BoilerDevice
 from .coordinator import NavienSmartCoordinator
-from .entity import AironeEntity, NavienSmartEntity
+from .entity import AironeEntity, BoilerEntity, NavienSmartEntity, async_track_boilers
 from .models import NavienDevice
 
 
@@ -33,6 +34,13 @@ async def async_setup_entry(
         AironeErrorProblem(coordinator, airone) for airone in coordinator.airone.values()
     )
     async_add_entities(entities)
+    async_track_boilers(
+        hass,
+        entry,
+        coordinator,
+        lambda b: [BoilerHotWaterInUse(coordinator, b)] if b.is_mgpp else [],
+        async_add_entities,
+    )
 
 
 class NavienSmartHighTempWarning(NavienSmartEntity, BinarySensorEntity):
@@ -95,3 +103,27 @@ class AironeErrorProblem(AironeEntity, BinarySensorEntity):
         if device is None or device.error_code is None:
             return None
         return device.has_error
+
+
+class BoilerHotWaterInUse(BoilerEntity, BinarySensorEntity):
+    """수도 온수를 쓰는 중인가 — `DHWUse` 2 = 사용 중, 1 = 아님 (v0.25.0, #29).
+
+    값의 뜻은 NR-6x 한 대(NR-67D)에서 확인했다. NR-40D status 에는 이 키가 없다.
+    """
+
+    _attr_name = "온수 사용 중"
+    _attr_icon = "mdi:water-pump"
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator, boiler)
+        self._attr_unique_id = f"{boiler.device_id}_boiler_dhw_in_use"
+
+    @property
+    def is_on(self) -> bool | None:
+        boiler = self.boiler
+        value = None if boiler is None else boiler.status.get("DHWUse")
+        if value == 2:
+            return True
+        if value == 1:
+            return False
+        return None
