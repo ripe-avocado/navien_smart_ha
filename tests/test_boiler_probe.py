@@ -123,6 +123,7 @@ probe._boiler_record = lambda device_id: NavienSmartCoordinator._boiler_record(p
 probe._apply_boiler_message = lambda device_id, body: None
 probe.boilers = {}
 probe.boiler_control_enabled = False
+probe.boiler_experimental_enabled = False
 probe.boiler_stats = {}
 probe.boiler_commands = []
 probe.boiler_controllable = lambda boiler: False

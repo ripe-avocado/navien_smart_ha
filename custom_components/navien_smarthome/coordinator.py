@@ -40,6 +40,7 @@ from .const import (
     AIRONE_TOPIC_FMT,
     AIRONE_UPDATE_INTERVAL_SECONDS,
     BOILER_CONTROL_MODELS,
+    BOILER_EXPERIMENTAL_MODELS,
     BOILER_KEEP_FIRST,
     BOILER_KEEP_MESSAGES,
     BOILER_MGPP_MODELS,
@@ -50,6 +51,7 @@ from .const import (
     BOILER_STALE_SECONDS,
     BOILER_STATUS_DELAY_SECONDS,
     CONF_BOILER_CONTROL,
+    CONF_BOILER_CONTROL_EXPERIMENTAL,
     DOMAIN,
     MIN_REFRESH_COOLDOWN_SECONDS,
     MODELS_AFTER_2024,
@@ -769,8 +771,17 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         """
         return bool(self.config_entry.options.get(CONF_BOILER_CONTROL, True))
 
+    @property
+    def boiler_experimental_enabled(self) -> bool:
+        """「NR-35D · NR-40D 제어 (실험)」. 기본 꺼짐 (v0.26.0)."""
+        return bool(self.config_entry.options.get(CONF_BOILER_CONTROL_EXPERIMENTAL, False))
+
     def boiler_controllable(self, boiler: BoilerDevice) -> bool:
-        return self.boiler_control_enabled and boiler.model_code in BOILER_CONTROL_MODELS
+        if boiler.model_code in BOILER_CONTROL_MODELS:
+            return self.boiler_control_enabled
+        if boiler.model_code in BOILER_EXPERIMENTAL_MODELS:
+            return self.boiler_experimental_enabled
+        return False
 
     async def async_boiler_control(
         self, boiler: BoilerDevice, command: tuple[str, int], param: list[Any]
@@ -778,7 +789,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         """명령 하나를 보낸다. 결과는 보일러가 보내는 상태 방송으로 돌아온다."""
         if not self.boiler_controllable(boiler):
             raise HomeAssistantError(
-                "보일러 제어가 꺼져 있습니다. 통합 설정의 '보일러 제어 사용' 을 켜 주세요."
+                "이 보일러는 제어가 꺼져 있습니다. 통합 설정의 '구성' 에서 켜 주세요."
             )
         mode, code = command
         self.boiler_commands.append(

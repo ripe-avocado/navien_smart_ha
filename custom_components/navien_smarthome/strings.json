@@ -52,9 +52,10 @@
     "step": {
       "init": {
         "title": "나비엔 스마트 설정",
-        "description": "보일러를 HA 에서 제어할지 고릅니다. 켜면 전원 · 난방 모드 · 온도 · 온수 온도를 바꿀 수 있습니다. 지금은 NR-6x 계열만 해당합니다 (실기기 확인). 끄면 상태만 보입니다.",
+        "description": "보일러를 HA 에서 제어할지 고릅니다. 켜면 전원 · 난방 모드 · 온도 · 온수 온도를 바꿀 수 있습니다. 끄면 상태만 보입니다. NR-35D · NR-40D 는 실기기 확인 전이라 따로 켜야 합니다 — 이상하면 끄고 GitHub 이슈로 알려 주세요.",
         "data": {
-          "boiler_control": "보일러 제어 사용"
+          "boiler_control": "보일러 제어 사용 (NR-6x)",
+          "boiler_control_experimental": "NR-35D · NR-40D 제어 (실험)"
         }
       }
     }

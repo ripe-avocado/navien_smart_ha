@@ -1,4 +1,4 @@
-"""보일러 온수 (v0.23.0, 제어를 켠 NR-6x 만 — v0.24.0 부터 기본 켜짐).
+"""보일러 온수 (v0.23.0). 제어를 켠 NR-6x(기본 켜짐), 실험 설정을 켠 NR-35D · NR-40D.
 
 v0.22.0 에서는 `number`(숫자 입력칸)였다. 난방은 온도조절기 모양인데 온수만
 입력칸이라 어색하다는 제보를 받고(#20) HA 의 온수기 엔티티로 옮겼다 — 같은 다이얼로
@@ -80,5 +80,7 @@ class BoilerWaterHeater(BoilerEntity, WaterHeaterEntity):
         if boiler is None or temperature is None:
             return
         await self.coordinator.async_boiler_control(
-            boiler, BOILER_CMD_HOTWATER, [boiler.encode(float(temperature))]
+            boiler,
+            BOILER_CMD_HOTWATER,
+            [boiler.encode_for("hotWaterTemperatureSetting", float(temperature))],
         )

@@ -273,7 +273,7 @@ class NavienSmartThermostat(NavienSmartEntity, ClimateEntity):
         await self.coordinator.async_send(device, device.build_zone_off(zones))
 
 
-# -- 보일러 (제어를 켠 NR-6x 만 — v0.24.0 부터 기본 켜짐) ----------------------
+# -- 보일러 (제어를 켠 NR-6x · 실험 설정을 켠 NR-35D · NR-40D) -------------------
 
 # 프리셋 이름 → (기능 Use 이름, operationMode)
 _BOILER_PRESETS = (
@@ -371,7 +371,8 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
     @property
     def target_temperature_step(self) -> float:
         boiler = self.boiler
-        return 0.5 if boiler is not None and self._kind(boiler) == "inside" else 1.0
+        kind = None if boiler is None else self._kind(boiler)
+        return 1.0 if kind is None else boiler.step_for(kind)
 
     @property
     def min_temp(self) -> float:
@@ -419,7 +420,7 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
             raise HomeAssistantError("이 보일러는 실내·온돌 온도 설정을 지원하지 않습니다.")
         command = BOILER_CMD_INSIDE if kind == "inside" else BOILER_CMD_ONDOL
         await self.coordinator.async_boiler_control(
-            boiler, command, [boiler.encode(float(temperature))]
+            boiler, command, [boiler.encode_for(kind, float(temperature))]
         )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -434,14 +435,16 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
         if preset_mode == "외출":
             await self.coordinator.async_boiler_control(boiler, BOILER_CMD_GOOUT, [])
             return
-        # 모드를 바꿀 때는 그 모드의 **지금 설정값**을 그대로 싣는다. 받은 값이
-        # 이미 기기 단위(NR-6x ×2)라 다시 바꾸지 않는다.
-        key, command = (
-            ("insideTemperatureSetting", BOILER_CMD_INSIDE)
+        # 모드를 바꿀 때는 그 모드의 **지금 설정값**을 싣는다. 기종마다 싣는 모양이
+        # 달라(NR-6x ×2 소수 · NR-40D ℃ 정수) ℃ 로 읽어 다시 바꾼다.
+        kind, command = (
+            ("inside", BOILER_CMD_INSIDE)
             if preset_mode == "실내난방"
-            else ("ondolTemperatureSetting", BOILER_CMD_ONDOL)
+            else ("ondol", BOILER_CMD_ONDOL)
         )
-        raw = boiler.status.get(key)
-        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        current = boiler.value(f"{kind}TemperatureSetting")
+        if current is None:
             raise HomeAssistantError("그 모드의 설정 온도를 아직 받지 못했습니다.")
-        await self.coordinator.async_boiler_control(boiler, command, [float(raw)])
+        await self.coordinator.async_boiler_control(
+            boiler, command, [boiler.encode_for(kind, current)]
+        )

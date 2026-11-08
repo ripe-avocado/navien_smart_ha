@@ -94,6 +94,25 @@ class BoilerDevice:
         """
         return float(round(celsius * self.scale))
 
+    def encode_for(self, use: str, celsius: float) -> float | int:
+        """기능(`{use}Use`)에 맞춰 보낼 값.
+
+        NR-6x 는 `encode` 와 같다. NR-35D · NR-40D 는 같은 슬라이더 코드의 다른 갈래다 —
+        `{use}Use` 가 2 면 0.5℃ 칸이라 ℃ 를 **소수**로(`boxFloat(value / 2)`), 그 밖이면
+        ℃ 를 **정수**로(`boxInt(value)`) 싣는다. NR-40D 는 Use 3 이라 정수다 (26℃ → `26`).
+        """
+        if self.is_mgpp:
+            return self.encode(celsius)
+        if _number(self.feature.get(f"{use}Use")) == 2:
+            return round(celsius * 2) / 2
+        return int(round(celsius))
+
+    def step_for(self, use: str) -> float:
+        """설정 간격. NR-6x 실내 0.5 · 그 밖 1, NR-35D 계열은 Use 2 면 0.5."""
+        if self.is_mgpp:
+            return 0.5 if use == "inside" else 1.0
+        return 0.5 if _number(self.feature.get(f"{use}Use")) == 2 else 1.0
+
     # -- 기능 --------------------------------------------------------------
 
     def supports(self, name: str) -> bool:
@@ -149,6 +168,8 @@ class BoilerDevice:
         로직 · 설명서 · 실측(1 일 때 난방수 온도 그대로, 2 로 바뀐 뒤 공급·환수 온도가
         함께 오름)으로 맞춰 알려 주었다. 그 밖의 값은 추측하지 않고 None.
         """
+        if not self.is_mgpp:
+            return None  # NR-40D 도 키는 오지만 뜻을 확인하지 못했다
         busy = _number(self.status.get("operationBusy"))
         if busy == 2:
             return True

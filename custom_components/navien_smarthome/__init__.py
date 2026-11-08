@@ -29,7 +29,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
-    # 보일러 온수 (제어를 켠 NR-6x 만 — 기본 켜짐).
+    # 보일러 온수 (제어를 켠 기종만).
     Platform.WATER_HEATER,
 ]
 

@@ -181,6 +181,7 @@ def _boilers_view(coordinator: Any) -> dict[str, Any]:
     now = time.monotonic()
     return {
         "control_enabled": coordinator.boiler_control_enabled,
+        "experimental_enabled": coordinator.boiler_experimental_enabled,
         "stats": dict(coordinator.boiler_stats),
         "commands": list(coordinator.boiler_commands),
         "now_at": round(now, 1),

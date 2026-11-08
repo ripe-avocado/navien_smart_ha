@@ -28,6 +28,7 @@ from navien_smarthome.const import (  # noqa: E402
     BOILER_CMD_ONDOL,
     BOILER_CMD_POWER_OFF,
     CONF_BOILER_CONTROL,
+    CONF_BOILER_CONTROL_EXPERIMENTAL,
 )
 from navien_smarthome.coordinator import NavienSmartCoordinator  # noqa: E402
 from navien_smarthome.diagnostics import _boilers_view, _scrub  # noqa: E402
@@ -186,12 +187,15 @@ class _Api:
         return {}
 
 
-def control_coord(enabled: bool, boilers: dict) -> SimpleNamespace:
+def control_coord(enabled: bool, boilers: dict, experimental: bool = False) -> SimpleNamespace:
     c = SimpleNamespace(
-        config_entry=SimpleNamespace(options={CONF_BOILER_CONTROL: enabled}),
+        config_entry=SimpleNamespace(
+            options={CONF_BOILER_CONTROL: enabled, CONF_BOILER_CONTROL_EXPERIMENTAL: experimental}
+        ),
         api=_Api(), home_seq=1, mqtt_client_id="client", boiler_commands=[], boilers=boilers,
     )
     c.boiler_control_enabled = NavienSmartCoordinator.boiler_control_enabled.fget(c)
+    c.boiler_experimental_enabled = NavienSmartCoordinator.boiler_experimental_enabled.fget(c)
     c.boiler_controllable = lambda boiler: NavienSmartCoordinator.boiler_controllable(c, boiler)
     c.async_boiler_control = lambda boiler, command, param: NavienSmartCoordinator.async_boiler_control(
         c, boiler, command, param
@@ -217,7 +221,15 @@ r.ok(raises(off.async_boiler_control(b20, BOILER_CMD_POWER_OFF, [])) and calls =
 on = control_coord(True, {ID_20: b20, ID_40: b40, ID_35: b35})
 r.ok(on.boiler_controllable(b20), "켜면 NR-6x 는 제어한다")
 r.ok(not on.boiler_controllable(b40) and not on.boiler_controllable(b35),
-     "NR-40D · 각방은 켜도 아직 제어하지 않는다")
+     "NR-40D · 각방은 실험 설정 없이는 제어하지 않는다")
+exp = control_coord(True, {ID_40: b40, ID_35: b35}, experimental=True)
+r.ok(exp.boiler_controllable(b40), "실험 설정을 켜면 NR-40D 를 제어한다 (v0.26.0)")
+r.ok(not exp.boiler_controllable(b35), "각방은 실험 설정을 켜도 아직 아니다")
+r.ok(NavienSmartCoordinator.boiler_experimental_enabled.fget(
+    SimpleNamespace(config_entry=SimpleNamespace(options={}))) is False, "실험 설정은 기본 꺼짐")
+only_exp = control_coord(False, {ID_20: b20, ID_40: b40}, experimental=True)
+r.ok(not only_exp.boiler_controllable(b20) and only_exp.boiler_controllable(b40),
+     "두 스위치는 따로 논다 — NR-6x 를 끄고 NR-40D 만 켤 수 있다")
 asyncio.run(on.async_boiler_control(b20, BOILER_CMD_ONDOL, [80.0]))
 r.ok(calls[-1] == (("control", "res", 33554438), "ondol-heat", [80.0]), f"보내는 것: {calls[-1]}")
 r.ok(on.boiler_commands[-1]["mode"] == "ondol-heat", "보낸 명령을 진단에 남긴다")
@@ -286,6 +298,47 @@ r.ok(raises(t3.async_set_temperature(temperature=45)) and calls == [],
      "꺼져 있으면 온도를 바꿔 몰래 켜지 않는다")
 asyncio.run(t3.async_set_temperature(temperature=45, hvac_mode="heat"))
 r.ok([c[1] for c in calls] == ["power-on", "ondol-heat"], f"hvac_mode heat 를 주면 켜고 맞춘다: {calls}")
+
+r.section("NR-40D 실험 제어 — ℃ 정수, command 없음 (v0.26.0)")
+
+r.ok(b40.encode_for("inside", 24) == 24 and isinstance(b40.encode_for("inside", 24), int),
+     "NR-40D(Use 3) 24℃ → 24 (정수)")
+half = ready(ID_40, "002", "NR-35D", {**FEATURE_40, "insideUse": 2}, STATUS_40)
+r.ok(half.encode_for("inside", 22.5) == 22.5 and half.step_for("inside") == 0.5,
+     "Use 2 면 0.5℃ 소수 (앱의 boxFloat(value / 2) 갈래)")
+r.ok(b40.step_for("inside") == 1.0 and b20.step_for("inside") == 0.5 and b20.step_for("ondol") == 1.0,
+     "간격 — NR-40D 1℃ · NR-6x 실내 0.5 · 온돌 1")
+
+
+def thermostat_exp(boiler: BoilerDevice) -> BoilerThermostat:
+    c = control_coord(True, {boiler.device_id: boiler}, experimental=True)
+    entity = BoilerThermostat(c, boiler)
+    entity.coordinator = c
+    return entity
+
+
+t40 = thermostat_exp(b40)
+r.ok(t40._presets == ["실내난방", "온돌난방", "외출"], f"NR-40D 프리셋 (Use 3·2): {t40._presets}")
+r.ok(t40.target_temperature == 24.0 and t40.target_temperature_step == 1.0, "실내 24℃ · 1℃ 간격")
+r.ok(t40.hvac_action == "heating", "NR-40D 는 연소 여부를 모르니 예전처럼 모드로 본다")
+calls.clear()
+asyncio.run(t40.async_set_temperature(temperature=25))
+r.ok(calls[-1][1:] == ("inside-heat", [25]), f"실내 25℃ → inside-heat [25]: {calls[-1]}")
+asyncio.run(t40.async_set_preset_mode("온돌난방"))
+r.ok(calls[-1][1:] == ("ondol-heat", [45]), f"온돌로 → 지금 온돌 설정 45 그대로: {calls[-1]}")
+asyncio.run(t40.async_set_hvac_mode("off"))
+r.ok(calls[-1][1:] == ("power-off", []), "끄기 → power-off []")
+c40 = control_coord(True, {ID_40: b40}, experimental=True)
+heater40 = BoilerWaterHeater(c40, b40)
+heater40.coordinator = c40
+asyncio.run(heater40.async_set_temperature(temperature=43))
+r.ok(calls[-1][1:] == ("hotwater-temperature", [43]), f"온수 43℃ → [43]: {calls[-1]}")
+body40 = asyncio.run(api.async_boiler_request(1, raw(ID_40, "003", "NR-40D"), "client",
+                                              ("control", "res", 33554437), mode="inside-heat", param=[25]))
+req40 = body40["payload"]["request"]
+r.ok("command" not in req40 and "deviceType" not in req40 and "protocolVersion" not in body40["payload"],
+     "NR-40D 봉투에는 command · deviceType · protocolVersion 이 없다 (RequestControlNR35D)")
+r.ok(req40["mode"] == "inside-heat" and req40["param"] == [25], "mode · param 은 싣는다")
 
 r.section("온수 — NR-6x (v0.23.0 부터 온수기 엔티티)")
 

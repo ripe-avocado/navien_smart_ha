@@ -75,6 +75,7 @@ coord = SimpleNamespace(
     mqtt_stats={}, mqtt_client_id=OUR_CLIENT, poll_attempts=0, poll_failures=0,
     poll_age=None, poll_last_error=None, update_interval=None, home_seq=int(HOME),
     boiler_targets=[raw], boilers={DEVICE_ID: boiler}, boiler_control_enabled=True,
+    boiler_experimental_enabled=False,
     boiler_stats={}, boiler_commands=[{"at": 1.0, "mode": "ondol-heat", "param": [80.0]}],
     boiler_probe={DEVICE_ID: {
         "sent": [{"request": "status", "at": 1.0, "result": "ok",
