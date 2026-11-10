@@ -169,6 +169,7 @@ stub(
 stub(
     "homeassistant.components.water_heater",
     pkg=True,
+    STATE_GAS="gas",
     WaterHeaterEntity=Base,
     WaterHeaterEntityFeature=enum(TARGET_TEMPERATURE=1),
 )

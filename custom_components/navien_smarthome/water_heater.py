@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.water_heater import (
+    STATE_GAS,
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
@@ -55,6 +56,10 @@ class BoilerWaterHeater(BoilerEntity, WaterHeaterEntity):
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_precision = PRECISION_WHOLE
     _attr_supported_features = WaterHeaterEntityFeature.TARGET_TEMPERATURE
+    # 온수기 엔티티는 「운전 방식」을 상태로 보여 준다. 비워 두면 카드에 「알 수 없음」이
+    # 뜬다 (#24). 켜짐 · 꺼짐은 보일러 전원과 온수가 같이 움직이는지 확인하지 못해서
+    # 쓰지 않고, 사실인 「가스」로 둔다 (v0.26.1).
+    _attr_current_operation = STATE_GAS
 
     def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
         super().__init__(coordinator, boiler)
@@ -62,6 +67,9 @@ class BoilerWaterHeater(BoilerEntity, WaterHeaterEntity):
         low, high = boiler.temperature_range("hotWater") or (30.0, 60.0)
         self._attr_min_temp = low
         self._attr_max_temp = high
+        # 안 정하면 화면이 ℃ 에서 0.5 칸으로 움직인다. 온수는 앱 · 실내조절기 모두
+        # 1℃ 칸이라 0.5 를 고르면 보일러가 무시한다 (#24, NR-40D).
+        self._attr_target_temperature_step = boiler.step_for("hotWaterTemperatureSetting")
 
     @property
     def current_temperature(self) -> float | None:

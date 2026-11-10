@@ -369,6 +369,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             device.air_sensor_empty = old.air_sensor_empty
             device.air_sensor_errors = old.air_sensor_errors
             device.air_sensor_unchanged = old.air_sensor_unchanged
+            device.air_sensor_probed = old.air_sensor_probed
 
         self._log_airone_found(device)
         return device
@@ -409,7 +410,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             if not device.available:
                 continue
             if not device.wants_air_sensors:
-                # **센서가 없다고 기기가 밝힌 경우.** 물어봐야 빈 응답만 온다.
+                # **센서가 없다고 기기가 밝혔고, 한 번 물어봐도 비어 있던 경우.**
                 # 5분마다 헛도는 요청이 하나 줄고, 그만큼 폴링이 실패할 자리도
                 # 줄어든다. 나중에 에어모니터를 달면 기기목록에 잡혀서 다시 묻는다.
                 self._log_no_air_sensors(device)
@@ -435,6 +436,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                     _LOGGER.debug("%s 공기질 조회 실패: %s", device.nickname, err)
                 continue
             device.air_sensor_errors = 0
+            device.air_sensor_probed = True
             unknown = device.set_air_sensors(airs)
             if unknown:
                 self._log_skip(
@@ -455,9 +457,9 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         self._skipped_logged.add(key)
         _LOGGER.info(
             "%s 는 공기질 센서를 갖고 있지 않다고 알려왔습니다 "
-            "(룸콘 센서 목록 비어 있음, 에어모니터 없음). 공기질을 조회하지 "
-            "않습니다. 앱에는 공기질이 보이는데 HA 에 없다면 제보해 주세요",
-            device.nickname,
+            "(룸콘 센서 목록 비어 있음, 에어모니터 없음, 한 번 조회한 결과도 비어 있음). "
+            "공기질을 조회하지 않습니다. 앱에는 공기질이 보이는데 HA 에 없다면 제보해 주세요",
+            device.model_name,
         )
 
     def _log_unsupported(self, raw: dict[str, Any]) -> None:

@@ -366,6 +366,8 @@ class AironeDevice:
     air_sensor_empty: int = field(repr=False, default=0)
     air_sensor_errors: int = field(repr=False, default=0)
     air_sensor_unchanged: int = field(repr=False, default=0)
+    # `/air-sensor` 에서 응답을 한 번이라도 받았는가 (`wants_air_sensors`)
+    air_sensor_probed: bool = field(repr=False, default=False)
     humidity_log: list[dict[str, Any]] = field(repr=False, default_factory=list)
 
     # -- 생성 --------------------------------------------------------------
@@ -1026,12 +1028,16 @@ class AironeDevice:
 
         모니터 없는 전열교환기가 여기 걸린다. 그런 기기에 5분마다 물어봐야
         빈 응답만 오고, v0.12.0 이전에는 그 호출이 늦으면 **폴링 전체가 죽었다.**
+
+        **표가 비어 있어도 한 번은 묻는다** (v0.26.1). THE650 은 기기목록에 에어모니터도
+        센서 표도 빈 칸으로 오는데, `/air-sensor` 는 9종을 다 준다 (#30). 기기목록만
+        믿으면 안 된다. 한 번 물어 값이 오면 계속 묻고, 비어 있으면 그때 멈춘다.
         """
-        if self.air_monitors:
+        if self.air_monitors or self.sensor_kinds:
             return True
         if self.declared_sensors is None:
             return True
-        return bool(self.declared_sensors)
+        return bool(self.declared_sensors) or not self.air_sensor_probed
 
     @property
     def air_sensor_age(self) -> float | None:

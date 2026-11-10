@@ -331,6 +331,9 @@ r.ok(calls[-1][1:] == ("power-off", []), "끄기 → power-off []")
 c40 = control_coord(True, {ID_40: b40}, experimental=True)
 heater40 = BoilerWaterHeater(c40, b40)
 heater40.coordinator = c40
+r.ok(heater40._attr_target_temperature_step == 1.0,
+     "온수 다이얼은 1℃ 칸 — 안 정하면 화면이 0.5 칸으로 움직인다 (#24)")
+r.ok(heater40._attr_current_operation == "gas", "상태가 「알 수 없음」 대신 「가스」 (#24)")
 asyncio.run(heater40.async_set_temperature(temperature=43))
 r.ok(calls[-1][1:] == ("hotwater-temperature", [43]), f"온수 43℃ → [43]: {calls[-1]}")
 body40 = asyncio.run(api.async_boiler_request(1, raw(ID_40, "003", "NR-40D"), "client",
@@ -347,6 +350,7 @@ heater = BoilerWaterHeater(c, b20)
 heater.coordinator = c
 r.ok(heater.target_temperature == 41.0 and heater.current_temperature == 35.5, "설정 82 → 41℃ · 지금 71 → 35.5℃")
 r.ok((heater._attr_min_temp, heater._attr_max_temp) == (30.0, 60.0), "범위 30~60℃")
+r.ok(heater._attr_target_temperature_step == 1.0, "NR-6x 온수도 1℃ 칸")
 calls.clear()
 asyncio.run(heater.async_set_temperature(temperature=42))
 r.ok(calls[-1][1:] == ("hotwater-temperature", [84.0]), f"42℃ → 84.0 (#20 실기기와 같은 값): {calls[-1]}")
