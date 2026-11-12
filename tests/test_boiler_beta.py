@@ -220,16 +220,20 @@ r.ok(raises(off.async_boiler_control(b20, BOILER_CMD_POWER_OFF, [])) and calls =
      "꺼져 있으면 명령이 나가지 않는다")
 on = control_coord(True, {ID_20: b20, ID_40: b40, ID_35: b35})
 r.ok(on.boiler_controllable(b20), "켜면 NR-6x 는 제어한다")
-r.ok(not on.boiler_controllable(b40) and not on.boiler_controllable(b35),
-     "NR-40D · 각방은 실험 설정 없이는 제어하지 않는다")
-exp = control_coord(True, {ID_40: b40, ID_35: b35}, experimental=True)
-r.ok(exp.boiler_controllable(b40), "실험 설정을 켜면 NR-40D 를 제어한다 (v0.26.0)")
+r.ok(on.boiler_controllable(b40),
+     "NR-40D 도 기본 제어로 옮겼다 — #24 · #33 두 집에서 확인 (v0.27.0)")
+r.ok(not on.boiler_controllable(b35), "각방은 제어하지 않는다")
+nr35 = BoilerDevice(raw(ID_40, "002", "NR-35D"))
+r.ok(not on.boiler_controllable(nr35), "NR-35D 는 실험 설정 없이는 제어하지 않는다")
+exp = control_coord(True, {ID_40: nr35, ID_35: b35}, experimental=True)
+r.ok(exp.boiler_controllable(nr35), "실험 설정을 켜면 NR-35D 를 제어한다")
 r.ok(not exp.boiler_controllable(b35), "각방은 실험 설정을 켜도 아직 아니다")
 r.ok(NavienSmartCoordinator.boiler_experimental_enabled.fget(
     SimpleNamespace(config_entry=SimpleNamespace(options={}))) is False, "실험 설정은 기본 꺼짐")
-only_exp = control_coord(False, {ID_20: b20, ID_40: b40}, experimental=True)
-r.ok(not only_exp.boiler_controllable(b20) and only_exp.boiler_controllable(b40),
-     "두 스위치는 따로 논다 — NR-6x 를 끄고 NR-40D 만 켤 수 있다")
+only_exp = control_coord(False, {ID_20: b20, ID_40: nr35}, experimental=True)
+r.ok(not only_exp.boiler_controllable(b20) and not only_exp.boiler_controllable(b40)
+     and only_exp.boiler_controllable(nr35),
+     "두 스위치는 따로 논다 — 기본 제어를 끄고 NR-35D 만 켤 수 있다")
 asyncio.run(on.async_boiler_control(b20, BOILER_CMD_ONDOL, [80.0]))
 r.ok(calls[-1] == (("control", "res", 33554438), "ondol-heat", [80.0]), f"보내는 것: {calls[-1]}")
 r.ok(on.boiler_commands[-1]["mode"] == "ondol-heat", "보낸 명령을 진단에 남긴다")

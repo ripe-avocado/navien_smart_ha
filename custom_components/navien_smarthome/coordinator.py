@@ -775,7 +775,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
 
     @property
     def boiler_experimental_enabled(self) -> bool:
-        """「NR-35D · NR-40D 제어 (실험)」. 기본 꺼짐 (v0.26.0)."""
+        """「NR-35D 제어 (실험)」. 기본 꺼짐 (v0.26.0, NR-40D 는 v0.27.0 에 기본 제어로 옮김)."""
         return bool(self.config_entry.options.get(CONF_BOILER_CONTROL_EXPERIMENTAL, False))
 
     def boiler_controllable(self, boiler: BoilerDevice) -> bool:

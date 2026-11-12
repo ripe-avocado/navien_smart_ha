@@ -67,6 +67,7 @@ stub(
         NUMBER="number",
         BUTTON="button",
         WATER_HEATER="water_heater",
+        FAN="fan",
     ),
     ATTR_TEMPERATURE="temperature",
     PERCENTAGE="%",
@@ -165,6 +166,12 @@ stub(
     ClimateEntityFeature=enum(TARGET_TEMPERATURE=1, TURN_ON=2, TURN_OFF=4, PRESET_MODE=8),
     HVACMode=enum(HEAT="heat", OFF="off", COOL="cool"),
     HVACAction=enum(HEATING="heating", IDLE="idle", OFF="off", COOLING="cooling"),
+)
+stub(
+    "homeassistant.components.fan",
+    pkg=True,
+    FanEntity=Base,
+    FanEntityFeature=enum(SET_SPEED=1, PRESET_MODE=8, TURN_OFF=16, TURN_ON=32),
 )
 stub(
     "homeassistant.components.water_heater",

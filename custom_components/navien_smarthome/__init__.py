@@ -24,6 +24,8 @@ PLATFORMS: list[Platform] = [
     # 온도형(`0.5C`)은 climate, 단계형(`1.0L`)은 select 로 갈린다. 둘 다 등록하고
     # 각 플랫폼이 자기 축의 기기만 골라 간다.
     Platform.CLIMATE,
+    # 환기청정기 전원 · 풍량 (v0.27.0).
+    Platform.FAN,
     # 에어원 목표 습도만 쓴다. 매트 단계는 `select` 다 — 단계는 연속량이 아니다.
     Platform.NUMBER,
     Platform.SELECT,

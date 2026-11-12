@@ -52,10 +52,10 @@
     "step": {
       "init": {
         "title": "Navien Smart options",
-        "description": "Choose whether Home Assistant can control the boiler (power, heating mode, temperature, hot water temperature). When disabled, only status is shown. NR-35D / NR-40D control is not yet verified on real devices, so it has its own switch — if anything looks wrong, turn it off and open a GitHub issue.",
+        "description": "Choose whether Home Assistant can control the boiler (power, heating mode, temperature, hot water temperature). When disabled, only status is shown. NR-35D control is not yet verified on real devices, so it has its own switch — if anything looks wrong, turn it off and open a GitHub issue.",
         "data": {
-          "boiler_control": "Enable boiler control (NR-6x)",
-          "boiler_control_experimental": "NR-35D / NR-40D control (experimental)"
+          "boiler_control": "Enable boiler control (NR-6x / NR-40D)",
+          "boiler_control_experimental": "NR-35D control (experimental)"
         }
       }
     }

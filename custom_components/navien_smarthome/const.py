@@ -136,12 +136,14 @@ CONF_BOILER_CONTROL: Final = "boiler_control"
 # 제어를 열어 두는 modelCode. NR-6x 만 — 보일러가 바뀐 상태를 스스로 알려 주는
 # 것까지 확인된 계열이다 (#20, 실내조절기 조작이 수 초 안에 방송됨).
 # NR-40D·NRM-35D 는 명령 모양이 달라(각방은 방 비트문자열) 제보자 확인 뒤에 연다.
-BOILER_CONTROL_MODELS: Final = frozenset({"20"})
-# **NR-35D · NR-40D 제어 (실험, v0.26.0).** 따로 켜야 한다 (`CONF_BOILER_CONTROL_EXPERIMENTAL`,
-# 기본 꺼짐). 명령 모양은 앱 코드로 확인했고 실기기 확인 전이다 — NR-6x 와 같은 `mode`
-# 이름을 쓰되, 봉투에 `command` 가 없고 온도를 ℃ 로 싣는다(아래 `BoilerDevice.encode_for`).
+# NR-40D(003) 는 v0.27.0 부터 여기에 든다 — #24 · #33 두 집에서 난방 · 온수 제어를 확인했다.
+BOILER_CONTROL_MODELS: Final = frozenset({"20", "003"})
+# **NR-35D 제어 (실험).** 따로 켜야 한다 (`CONF_BOILER_CONTROL_EXPERIMENTAL`, 기본 꺼짐).
+# 명령은 NR-40D 와 같은 코드 갈래다 — NR-6x 와 같은 `mode` 이름을 쓰되, 봉투에 `command` 가
+# 없고 온도를 ℃ 로 싣는다(`BoilerDevice.encode_for`). NR-40D 는 실기기로 확인돼 v0.27.0 에
+# 기본 제어로 옮겼고, NR-35D 는 아직 확인한 사람이 없다.
 # 각방(011)은 방 비트문자열이 붙어 아직 열지 않는다.
-BOILER_EXPERIMENTAL_MODELS: Final = frozenset({"002", "003"})
+BOILER_EXPERIMENTAL_MODELS: Final = frozenset({"002"})
 CONF_BOILER_CONTROL_EXPERIMENTAL: Final = "boiler_control_experimental"
 # 이 시간 동안 보일러에게서 아무 메시지도 없으면 상태를 한 번 묻는다. 상태가
 # 바뀌면 보일러가 알아서 보내므로(#20) 평소에는 묻지 않는다. 매트 폴링 주기와 같다.

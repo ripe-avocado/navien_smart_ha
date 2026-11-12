@@ -153,6 +153,9 @@ class AironePowerSwitch(AironeEntity, SwitchEntity):
     # 각자 이름을 유지한다.
     _attr_name = None
     _attr_icon = "mdi:power"
+    # **v0.27.0 부터 팬(`fan.py`)이 전원을 맡는다.** 새로 설치하면 꺼진 채로 만든다.
+    # 이미 쓰던 사람은 그대로 켜져 있다 — 자동화가 깨지지 않게. 다음 몇 버전 뒤에 없앤다.
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:
         super().__init__(coordinator, device)

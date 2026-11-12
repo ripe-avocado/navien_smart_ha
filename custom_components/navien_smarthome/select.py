@@ -348,6 +348,9 @@ class AironeFanSelect(AironeEntity, SelectEntity):
 
     _attr_translation_key = "airone_fan"
     _attr_icon = "mdi:fan"
+    # **v0.27.0 부터 팬(`fan.py`)이 풍량을 맡는다.** 전원 스위치와 같은 이유로 새로
+    # 설치하면 꺼진 채로 만들고, 몇 버전 뒤에 없앤다.
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: NavienSmartCoordinator, device: AironeDevice) -> None:
         super().__init__(coordinator, device)
