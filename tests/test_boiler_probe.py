@@ -90,7 +90,18 @@ fake = SimpleNamespace(raw_devices=[
     {"deviceSeq": 12, "serviceCode": 200, "modelCode": "20", "deviceId": DEVICE_ID},
 ])
 targets = NavienSmartCoordinator.boiler_targets.fget(fake)
-r.ok([t["deviceSeq"] for t in targets] == [7, 8, 13], f"20 · 003 · 011 만 묻는다: {[t['deviceSeq'] for t in targets]}")
+r.ok([t["deviceSeq"] for t in targets] == [7, 8, 13], f"엔티티는 20 · 003 · 011 만: {[t['deviceSeq'] for t in targets]}")
+fake.boiler_targets = targets
+asked = NavienSmartCoordinator.boiler_probe_targets.fget(fake)
+r.ok([t["deviceSeq"] for t in asked] == [7, 8, 13, 9],
+     f"묻기는 각방 Hi(120)까지 — 자료만 모은다 (v0.27.1, #34): {[t['deviceSeq'] for t in asked]}")
+
+body, _ = body_for("120", coord_mod.BOILER_REQ_STATUS)
+p = body["payload"]
+r.ok(p.get("protocolVersion") == 1 and p["request"].get("deviceType") == 120
+     and p["request"].get("command") == coord_mod.BOILER_REQ_STATUS[2],
+     "120 은 NR-6x 와 같은 봉투, deviceType 120 (앱 RequestControl)")
+r.ok("mode" not in p["request"], "읽기 요청 — 제어 mode 가 없다")
 
 body, _ = body_for("011", coord_mod.BOILER_REQ_STATUS)
 p = body["payload"]
@@ -118,6 +129,7 @@ probe = SimpleNamespace(
     _mqtt=SimpleNamespace(client_id=CLIENT),
 )
 probe.boiler_targets = NavienSmartCoordinator.boiler_targets.fget(probe)
+probe.boiler_probe_targets = probe.boiler_targets
 probe._boiler_record = lambda device_id: NavienSmartCoordinator._boiler_record(probe, device_id)
 # 해석(v0.22.0 베타)은 test_boiler_beta.py 가 본다. 여기서는 기록만 본다.
 probe._apply_boiler_message = lambda device_id, body: None

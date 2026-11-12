@@ -165,7 +165,7 @@ async def async_get_config_entry_diagnostics(
     # 보일러 토픽에는 키 없이 실리는 식별자가 셋 더 있다 — `roomcon-<MAC>` 의 MAC
     # (deviceId 앞 12자), 우리 MQTT clientId, `boiler_probe` 의 deviceId 키.
     extra = {coordinator.mqtt_client_id}
-    for raw in coordinator.boiler_targets:
+    for raw in coordinator.boiler_probe_targets:
         mac = raw["deviceId"][:12]
         extra |= {mac, mac.lower(), mac.upper()}
     secrets = sorted(
@@ -210,7 +210,7 @@ def _boiler_probe_view(coordinator: Any) -> list[dict[str, Any]]:
     """deviceId 를 키로 쓰지 않는다 — `_scrub` 은 값만 지운다. 목록으로 바꿔 담는다."""
     models = {
         raw["deviceId"]: (raw.get("deviceSeq"), raw.get("modelName"), raw.get("modelCode"))
-        for raw in coordinator.boiler_targets
+        for raw in coordinator.boiler_probe_targets
     }
     # **기록의 `at` 과 같은 시계로 지금 시각을 남긴다** (v0.21.2). 이게 없어서
     # 마지막 메시지가 1분 전인지 한 시간 전인지 가릴 수 없었다 — 「기기가 스스로
@@ -271,10 +271,35 @@ _CLIENT_ID = re.compile(
 _HOME_TOPIC = re.compile(r"\b\d+/(smarttok|mate|airone|scada|homeauto)(?=/|$)")
 
 
+# **모양이 기기 식별자인 값은 어디 있든 지운다** (v0.27.1). 처음 붙이는 기종(각방 Hi)은
+# 어떤 키에 무엇이 실려 올지 모른다 — 방 조절기마다 MAC 이 따로 있을 수 있다. 키를
+# 미리 다 알 수 없으니 모양으로 막는다.
+#
+# - 16진 12자(MAC) · 16자(deviceId). 숫자와 글자가 **섞인** 것만 — 숫자뿐인 타임스탬프는 그대로
+# - 콜론 · 하이픈으로 끊은 MAC (`AA:BB:CC:DD:EE:FF`)
+_HEX_ID = re.compile(
+    r"(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[A-Fa-f])(?=[0-9A-Fa-f]*[0-9])"
+    r"(?:[0-9A-Fa-f]{16}|[0-9A-Fa-f]{12})(?![0-9A-Za-z])"
+)
+_SPLIT_MAC = re.compile(r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f])")
+# 키 이름에 이 말이 들어가면 값을 통째로 가린다 — `roomconSerialNumber` 같은 처음 보는 키
+_SECRET_KEY_PARTS = ("serial", "macaddress")
+
+
 def _scrub(value: Any, secrets: list[str]) -> Any:
     """결과 전체를 훑어 식별자 문자열을 지운다."""
     if isinstance(value, dict):
-        return {key: _scrub(inner, secrets) for key, inner in value.items()}
+        return {
+            key: (
+                "**REDACTED**"
+                if isinstance(key, str)
+                and any(part in key.lower() for part in _SECRET_KEY_PARTS)
+                and inner not in (None, "", "**REDACTED**")
+                and not isinstance(inner, (dict, list))
+                else _scrub(inner, secrets)
+            )
+            for key, inner in value.items()
+        }
     if isinstance(value, list):
         return [_scrub(inner, secrets) for inner in value]
     if isinstance(value, str):
@@ -282,6 +307,8 @@ def _scrub(value: Any, secrets: list[str]) -> Any:
             if secret in value:
                 value = value.replace(secret, "**REDACTED**")
         value = _CLIENT_ID.sub("**REDACTED**", value)
+        value = _SPLIT_MAC.sub("**REDACTED**", value)
+        value = _HEX_ID.sub("**REDACTED**", value)
         return _HOME_TOPIC.sub(r"**REDACTED**/\1", value)
     return value
 

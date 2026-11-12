@@ -54,6 +54,15 @@ raw = {"deviceSeq": 7, "serviceCode": 100, "modelCode": "20", "modelName": "NR-6
        "deviceId": DEVICE_ID, "mqttTopicKey": TOPIC_KEY, "homeSeq": int(HOME),
        "regionCode": "REGION-TEST", "Properties": {"nickName": NICK}, "connected": 1}
 
+# 각방 Hi (NRM-65D, 120) — 묻기만 하는 기종 (v0.27.1). 응답에 무엇이 실릴지 모른다.
+HI_ID = "AABBCCDDEE" + "0F" + "1234"
+HI_MAC = HI_ID[:12]
+ROOM_MAC = "A1B2C3" + "D4E5F7"     # 방 조절기의 MAC 이 처음 보는 키로 올 수 있다
+ROOM_MAC_SPLIT = "A1:B2:C3:D4:E5:F8"
+ROOM_SERIAL = "RC-SERIAL-77"
+raw_hi = {"deviceSeq": 9, "serviceCode": 100, "modelCode": "120", "modelName": "NRM-65D",
+          "deviceId": HI_ID, "mqttTopicKey": "topickey-hi", "homeSeq": int(HOME), "connected": 1}
+
 
 def message(inner_topic: str, response: dict) -> dict:
     return {"at": 1.0, "topic": f"{HOME}/smarttok/{DEVICE_ID}",
@@ -74,7 +83,7 @@ coord = SimpleNamespace(
     raw_devices=[raw], data={}, airone={}, restored_devices=set(), mqtt_connected=True,
     mqtt_stats={}, mqtt_client_id=OUR_CLIENT, poll_attempts=0, poll_failures=0,
     poll_age=None, poll_last_error=None, update_interval=None, home_seq=int(HOME),
-    boiler_targets=[raw], boilers={DEVICE_ID: boiler}, boiler_control_enabled=True,
+    boiler_targets=[raw], boiler_probe_targets=[raw, raw_hi], boilers={DEVICE_ID: boiler}, boiler_control_enabled=True,
     boiler_experimental_enabled=False,
     boiler_stats={}, boiler_commands=[{"at": 1.0, "mode": "ondol-heat", "param": [80.0]}],
     boiler_probe={DEVICE_ID: {
@@ -88,6 +97,18 @@ coord = SimpleNamespace(
             # 사용자가 휴대폰 앱을 열어 둔 동안 들어오는 앱 앞 응답 (#20)
             message(f"cmd/20/{TOPIC_KEY}/mobile-{APP_CLIENT}/res/gas-meter", {"status": dict(status)}),
         ],
+        "received": [],
+    }, HI_ID: {
+        "sent": [{"request": "status/start", "at": 2.0, "result": "ok",
+                  "body": {"payload": {"requestTopic": f"cmd/120/roomcon-{HI_MAC}/status/start",
+                                       "request": {"macAddress": HI_MAC, "deviceType": 120}}}}],
+        "first": [{"at": 3.0, "topic": f"{HOME}/smarttok/{HI_ID}",
+                   "body": {"topic": f"cmd/120/topickey-hi/mobile-{OUR_CLIENT}/res/start",
+                            "payload": {"requestTopic": f"cmd/120/roomcon-{HI_MAC}/status/start",
+                                        "response": {"feature": {"roomCount": 5}, "rooms": [
+                                            {"roomNo": 1, "rcMac": ROOM_MAC, "roomconSerialNumber": ROOM_SERIAL,
+                                             "link": f"mac={ROOM_MAC_SPLIT}", "setTemp": 46,
+                                             "updatedAt": 1794181845061}]}}}}],
         "received": [],
     }},
 )
@@ -103,6 +124,8 @@ for label, secret in (
     ("우리 접속 ID", OUR_CLIENT), ("앱 접속 ID", APP_CLIENT[:36]), ("회원번호", "U88888"),
     ("우리 회원번호", "U77777"), ("집 번호 토픽", f"{HOME}/smarttok"), ("집 번호", HOME),
     ("별칭", NICK), ("지역 코드", "REGION-TEST"), ("룸콘 순번", "4242"),
+    ("각방 Hi deviceId", HI_ID), ("각방 Hi MAC (토픽)", HI_MAC), ("방 조절기 MAC (처음 보는 키)", ROOM_MAC),
+    ("방 조절기 MAC (콜론)", ROOM_MAC_SPLIT), ("방 조절기 시리얼 (처음 보는 키)", ROOM_SERIAL),
 ):
     r.ok(secret not in text, f"{label} 가 안 남는다")
 
@@ -111,5 +134,10 @@ r.ok("**REDACTED**/smarttok/" in text, "토픽 모양은 남는다")
 r.ok(out["boilers"]["devices"][0]["status"]["ondolTemperatureSetting"] == 80, "상태 값은 그대로")
 r.ok(out["boilers"]["devices"][0]["modelName"] == "NR-67D", "모델명은 남는다")
 r.ok(out["boilers"]["commands"][0]["param"] == [80.0], "보낸 명령 값은 남는다")
+hi_room = out["boiler_probe"][1]["first"][0]["body"]["payload"]["response"]["rooms"][0]
+r.ok(hi_room["setTemp"] == 46 and hi_room["roomNo"] == 1, "각방 Hi 의 온도 값은 남는다")
+r.ok(hi_room["updatedAt"] == 1794181845061, "숫자뿐인 타임스탬프는 안 지운다")
+r.ok(out["boiler_probe"][1]["modelCode"] == "120", "각방 Hi 기록에 모델코드가 붙는다")
+r.ok("cmd/120/roomcon-**REDACTED**/status/start" in text, "토픽 모양은 남는다")
 
 sys.exit(r.finish())

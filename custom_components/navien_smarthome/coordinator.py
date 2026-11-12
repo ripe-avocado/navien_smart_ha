@@ -45,6 +45,7 @@ from .const import (
     BOILER_KEEP_MESSAGES,
     BOILER_MGPP_MODELS,
     BOILER_NR35_MODELS,
+    BOILER_PROBE_ONLY_MODELS,
     BOILER_PREFIX,
     BOILER_REQ_START,
     BOILER_REQ_STATUS,
@@ -567,7 +568,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         }
         if self.airone and (prefix := TOPIC_PREFIX.get(SERVICE_AIRONE)):
             prefixes.add(prefix)
-        if self.boiler_targets:
+        if self.boiler_probe_targets:
             prefixes.add(BOILER_PREFIX)
         if not prefixes:
             _LOGGER.debug("구독할 기기가 없어 MQTT 를 시작하지 않습니다")
@@ -634,7 +635,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 continue
             self._schedule_airone_silence_check(airone)
 
-        if self.boiler_targets and not self._boiler_probed:
+        if self.boiler_probe_targets and not self._boiler_probed:
             self._boiler_probed = True
             # 기다리는 동안 MQTT 재접속 감시를 막지 않도록 따로 돌린다.
             self.hass.async_create_background_task(
@@ -654,6 +655,22 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             and len(raw.get("deviceId") or "") >= 16
         ]
 
+    @property
+    def boiler_probe_targets(self) -> list[dict[str, Any]]:
+        """상태를 **묻기만** 하는 보일러까지 더한 목록 (v0.27.1).
+
+        `boiler_targets` 는 엔티티를 만드는 기종, 여기는 거기에 자료만 모으는 기종
+        (`BOILER_PROBE_ONLY_MODELS`)을 더한 것이다. 통계정보의 식별자 가리기도
+        이 목록을 써야 한다 — 그렇지 않으면 묻기만 하는 기종의 MAC 이 토픽에 남는다.
+        """
+        return self.boiler_targets + [
+            raw
+            for raw in self.raw_devices
+            if raw.get("serviceCode") == SERVICE_BOILER
+            and raw.get("modelCode") in BOILER_PROBE_ONLY_MODELS
+            and len(raw.get("deviceId") or "") >= 16
+        ]
+
     def _boiler_record(self, device_id: str) -> dict[str, list[dict[str, Any]]]:
         return self.boiler_probe.setdefault(
             device_id, {"sent": [], "first": [], "received": []}
@@ -665,7 +682,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             (BOILER_REQ_START, BOILER_STATUS_DELAY_SECONDS),
             (BOILER_REQ_STATUS, 0),
         ):
-            for raw in self.boiler_targets:
+            for raw in self.boiler_probe_targets:
                 entry: dict[str, Any] = {
                     "request": request[0],
                     "at": round(time.monotonic(), 1),
@@ -687,7 +704,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
     def _handle_boiler_message(self, topic: str, body: Any) -> None:
         """받은 그대로 남긴다. 어느 보일러 것인지는 토픽의 deviceId 로 가른다."""
         device_id = next(
-            (raw["deviceId"] for raw in self.boiler_targets if raw["deviceId"] in topic),
+            (raw["deviceId"] for raw in self.boiler_probe_targets if raw["deviceId"] in topic),
             "unknown",
         )
         record = self._boiler_record(device_id)

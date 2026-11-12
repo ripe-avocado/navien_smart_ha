@@ -28,7 +28,7 @@ from .const import (
     LEGACY_CONTROLLER_TO_REQUEST,
     LEGACY_RUNNING_TO_REQUEST,
     API_URL,
-    BOILER_MGPP_MODELS,
+    BOILER_MGPP_ENVELOPE_MODELS,
     CODE_NOT_AUTHORIZED,
     CODE_SUCCESS,
     CODE_TOKEN_EXPIRED,
@@ -554,7 +554,7 @@ class NavienSmartApi:
             ),
             "request": inner,
         }
-        if code in BOILER_MGPP_MODELS:
+        if code in BOILER_MGPP_ENVELOPE_MODELS:
             payload = {"protocolVersion": 1, **payload}
             inner.update(paramStr="", command=command, deviceType=int(code))
 
