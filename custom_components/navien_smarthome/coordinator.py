@@ -45,6 +45,7 @@ from .const import (
     BOILER_KEEP_MESSAGES,
     BOILER_MGPP_MODELS,
     BOILER_NR35_MODELS,
+    BOILER_NR40D_MODEL,
     BOILER_PROBE_ONLY_MODELS,
     BOILER_PREFIX,
     BOILER_REQ_START,
@@ -796,6 +797,11 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         return bool(self.config_entry.options.get(CONF_BOILER_CONTROL_EXPERIMENTAL, False))
 
     def boiler_controllable(self, boiler: BoilerDevice) -> bool:
+        if boiler.model_code == BOILER_NR40D_MODEL:
+            # **실험 스위치로 쓰던 사람을 끊지 않는다** (v0.27.2, #35). v0.26.x 에서 NR-40D 는
+            # 실험 스위치로 켰다. NR-6x 가 없어서 기본 스위치를 꺼 둔 사람이 v0.27.0 에서
+            # 제어를 잃었다. 둘 중 하나만 켜져 있어도 제어한다.
+            return self.boiler_control_enabled or self.boiler_experimental_enabled
         if boiler.model_code in BOILER_CONTROL_MODELS:
             return self.boiler_control_enabled
         if boiler.model_code in BOILER_EXPERIMENTAL_MODELS:

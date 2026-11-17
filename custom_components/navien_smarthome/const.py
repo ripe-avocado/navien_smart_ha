@@ -144,6 +144,8 @@ CONF_BOILER_CONTROL: Final = "boiler_control"
 # NR-40D·NRM-35D 는 명령 모양이 달라(각방은 방 비트문자열) 제보자 확인 뒤에 연다.
 # NR-40D(003) 는 v0.27.0 부터 여기에 든다 — #24 · #33 두 집에서 난방 · 온수 제어를 확인했다.
 BOILER_CONTROL_MODELS: Final = frozenset({"20", "003"})
+# NR-40D 는 실험 스위치로도 켜진다 — v0.26.x 에 그걸로 켠 사람이 있다 (`boiler_controllable`)
+BOILER_NR40D_MODEL: Final = "003"
 # **NR-35D 제어 (실험).** 따로 켜야 한다 (`CONF_BOILER_CONTROL_EXPERIMENTAL`, 기본 꺼짐).
 # 명령은 NR-40D 와 같은 코드 갈래다 — NR-6x 와 같은 `mode` 이름을 쓰되, 봉투에 `command` 가
 # 없고 온도를 ℃ 로 싣는다(`BoilerDevice.encode_for`). NR-40D 는 실기기로 확인돼 v0.27.0 에
