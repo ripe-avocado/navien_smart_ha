@@ -43,6 +43,7 @@ from .const import (
     BOILER_EXPERIMENTAL_MODELS,
     BOILER_KEEP_FIRST,
     BOILER_KEEP_MESSAGES,
+    BOILER_HI_MODELS,
     BOILER_MGPP_MODELS,
     BOILER_NR35_MODELS,
     BOILER_NR40D_MODEL,
@@ -652,7 +653,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
             raw
             for raw in self.raw_devices
             if raw.get("serviceCode") == SERVICE_BOILER
-            and raw.get("modelCode") in BOILER_MGPP_MODELS | BOILER_NR35_MODELS
+            and raw.get("modelCode") in BOILER_MGPP_MODELS | BOILER_NR35_MODELS | BOILER_HI_MODELS
             and len(raw.get("deviceId") or "") >= 16
         ]
 

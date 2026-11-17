@@ -112,12 +112,16 @@ TOPIC_PREFIX: Final = {SERVICE_MATE: "mate", SERVICE_AIRONE: "airone"}
 BOILER_PREFIX: Final = "smarttok"
 BOILER_MGPP_MODELS: Final = frozenset({"20"})  # NR-6x — protocolVersion·command·deviceType 실림
 BOILER_NR35_MODELS: Final = frozenset({"002", "003", "011"})  # NR-35/40D · NRM-35D — 그 셋이 없다
-# **상태만 물어 자료를 모으는 기종** (v0.27.1). 엔티티는 만들지 않는다 — 값 체계를 모른다.
-# 120 = 각방 Hi (NRM-65D). 앱은 NR-6x 와 같은 `RequestControl` 봉투를 쓴다
-# (`BoilerConstants.boilerMqttPayload`, deviceType = 120). 읽기 요청만 보낸다 (#34).
-BOILER_PROBE_ONLY_MODELS: Final = frozenset({"120"})
+# **각방 Hi (NRM-65D, 120)** — v0.28.0 부터 상태 센서 (#34). 앱은 NR-6x 와 같은
+# `RequestControl` 봉투를 쓰고(deviceType 120), 값도 NR-6x 처럼 ℃×2 다 (설정 40 = 20℃,
+# `actualInsideTemperature` 227(×10) 과 대조). 방 상태는 `status.rooms` 목록으로 온다.
+# 제어는 아직 열지 않는다 — 방을 고르는 `roomUseSetting` 을 실기기로 확인하지 않았다.
+BOILER_HI_MODELS: Final = frozenset({"120"})
+# **상태만 물어 자료를 모으는 기종** (v0.27.1). 엔티티는 만들지 않는다 — 값 체계를 모를 때.
+# 120 이 v0.27.1 에 여기서 시작해 v0.28.0 에 `BOILER_HI_MODELS` 로 옮겨갔다. 지금은 비어 있다.
+BOILER_PROBE_ONLY_MODELS: Final = frozenset()
 # NR-6x 와 같은 봉투(protocolVersion · command · deviceType)를 쓰는 기종
-BOILER_MGPP_ENVELOPE_MODELS: Final = BOILER_MGPP_MODELS | BOILER_PROBE_ONLY_MODELS
+BOILER_MGPP_ENVELOPE_MODELS: Final = BOILER_MGPP_MODELS | BOILER_HI_MODELS
 # (요청, 응답, command)
 BOILER_REQ_START: Final = ("status/start", "res/start", 16777217)
 BOILER_REQ_STATUS: Final = ("status", "res", 16777219)

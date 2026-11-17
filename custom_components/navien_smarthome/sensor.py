@@ -389,8 +389,26 @@ _BOILER_SETTINGS = (
 
 def boiler_sensors(coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> list[SensorEntity]:
     """지원하는 것만 만든다. 기능 목록(`feature`)이 들어온 뒤에 불린다."""
+    if boiler.is_hi:
+        # 각방 Hi (v0.28.0, #34). 방은 `status.rooms`, 온수 · 오류는 status 맨 위에 있다.
+        entities: list[SensorEntity] = [BoilerErrorSensor(coordinator, boiler)]
+        for room in range(1, boiler.room_count + 1):
+            entities += [
+                BoilerRoomModeSensor(coordinator, boiler, room),
+                BoilerRoomTemperatureSensor(coordinator, boiler, room, "insideTemperature", "온도"),
+                BoilerRoomTemperatureSensor(coordinator, boiler, room, "insideTemperatureSetting", "설정 온도"),
+            ]
+        if boiler.supports("hotWaterTemperatureSetting"):
+            entities.append(
+                BoilerTemperatureSensor(coordinator, boiler, "hotWaterTemperatureSetting", "온수 설정 온도")
+            )
+        entities.append(
+            BoilerTemperatureSensor(coordinator, boiler, "hotWaterTemperature", "온수 온도", measured=True)
+        )
+        return entities
+
     if boiler.is_multi_room:
-        entities: list[SensorEntity] = []
+        entities = []
         for room in range(1, boiler.room_count + 1):
             entities.append(BoilerRoomModeSensor(coordinator, boiler, room))
             entities.append(
@@ -415,7 +433,12 @@ def boiler_sensors(coordinator: NavienSmartCoordinator, boiler: BoilerDevice) ->
         BoilerErrorSensor(coordinator, boiler),
     ]
     for key, name, use in _BOILER_SETTINGS:
-        if boiler.supports(use):
+        if not boiler.supports(use):
+            continue
+        if boiler.is_level(use):
+            # 온도가 아니라 단이다 (#35). ℃ 로 보이면 「3℃」가 된다.
+            entities.append(BoilerLevelSensor(coordinator, boiler, key, name.replace("설정 온도", "단계")))
+        else:
             entities.append(BoilerTemperatureSensor(coordinator, boiler, key, name))
     # 현재 온수 온도는 NR-6x 만 보낸다 (NR-40D status 에 없음, #24).
     if boiler.is_mgpp:
@@ -489,6 +512,25 @@ class BoilerErrorSensor(BoilerEntity, SensorEntity):
         boiler = self.boiler
         value = None if boiler is None else boiler.status.get("errorCode")
         return value if isinstance(value, int) else None
+
+
+class BoilerLevelSensor(BoilerEntity, SensorEntity):
+    """단(1 · 2 · 3)으로 맞추는 설정 (`{name}Use` 4). 배율 없이 그대로 보인다."""
+
+    _attr_icon = "mdi:water-thermometer"
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice, key: str, name: str) -> None:
+        super().__init__(coordinator, boiler)
+        self._key = key
+        self._attr_name = name
+        # 온도 센서와 같은 unique_id 를 쓰지 않는다 — 단위가 달라 HA 가 기록을 섞는다.
+        self._attr_unique_id = f"{boiler.device_id}_boiler_{key}_level"
+
+    @property
+    def native_value(self) -> int | None:
+        boiler = self.boiler
+        value = None if boiler is None else boiler.status.get(self._key)
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 class BoilerRoomModeSensor(BoilerEntity, SensorEntity):

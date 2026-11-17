@@ -42,6 +42,8 @@ async def async_setup_entry(
             [BoilerWaterHeater(coordinator, b)]
             if coordinator.boiler_controllable(b)
             and b.supports("hotWaterTemperatureSetting")
+            # 단으로 맞추는 보일러는 `온수 단계` 선택이 맡는다 (v0.28.0, #35)
+            and not b.is_level("hotWaterTemperatureSetting")
             and b.temperature_range("hotWater")
             else []
         ),

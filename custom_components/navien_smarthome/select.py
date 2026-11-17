@@ -24,8 +24,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NavienSmartConfigEntry
 from .airone import AironeDevice
+from .boiler import BoilerDevice
 from .const import (
     AIRONE_OPTION_SLEEP,
+    BOILER_CMD_HOTWATER,
     LEVEL_STANDBY,
     MAT_VOLUME_NAMES,
     SEASON_NAMES,
@@ -33,7 +35,7 @@ from .const import (
     level_label,
 )
 from .coordinator import NavienSmartCoordinator
-from .entity import AironeEntity, NavienSmartEntity
+from .entity import AironeEntity, BoilerEntity, NavienSmartEntity, async_track_boilers
 from .models import NavienDevice
 
 
@@ -76,6 +78,20 @@ async def async_setup_entry(
             entities.append(AironeFanSelect(coordinator, airone))
 
     async_add_entities(entities)
+    async_track_boilers(
+        hass,
+        entry,
+        coordinator,
+        lambda b: (
+            [BoilerHotWaterLevelSelect(coordinator, b)]
+            if coordinator.boiler_controllable(b)
+            and not b.is_mgpp
+            and b.is_level("hotWaterTemperatureSetting")
+            and b.level_range("hotWater")
+            else []
+        ),
+        async_add_entities,
+    )
 
 
 class NavienSmartSeasonSelect(NavienSmartEntity, SelectEntity):
@@ -406,3 +422,40 @@ class AironeFanSelect(AironeEntity, SelectEntity):
         await self.coordinator.async_airone_mode(
             device, device.mode, chosen.option, air_volume=chosen.air_volume
         )
+
+
+class BoilerHotWaterLevelSelect(BoilerEntity, SelectEntity):
+    """온수를 단(1 · 2 · 3)으로 맞추는 보일러 (v0.28.0, #35).
+
+    `hotWaterTemperatureSettingUse` 가 4 면 앱이 온수를 단 화면으로 그린다. 온수기
+    엔티티로 두면 「1~3℃」 다이얼이 된다. 명령은 같다 — `hotwater-temperature` 에
+    단 값을 정수로 싣는다. #35 NR-40D 가 v0.26.1 의 온수기로 이 값을 보내 동작했다.
+
+    NR-6x(×2 배율)에서 단이 오는 경우는 확인하지 못해 만들지 않는다.
+    """
+
+    _attr_name = "온수 단계"
+    _attr_icon = "mdi:water-thermometer"
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
+        super().__init__(coordinator, boiler)
+        self._attr_unique_id = f"{boiler.device_id}_boiler_hot_water_level"
+        low, high = boiler.level_range("hotWater") or (1, 3)
+        self._levels = list(range(low, high + 1))
+        self._attr_options = [f"{level}단" for level in self._levels]
+
+    @property
+    def current_option(self) -> str | None:
+        boiler = self.boiler
+        value = None if boiler is None else boiler.status.get("hotWaterTemperatureSetting")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        label = f"{int(value)}단"
+        return label if label in self._attr_options else None
+
+    async def async_select_option(self, option: str) -> None:
+        boiler = self.boiler
+        if boiler is None or option not in self._attr_options:
+            return
+        level = self._levels[self._attr_options.index(option)]
+        await self.coordinator.async_boiler_control(boiler, BOILER_CMD_HOTWATER, [level])

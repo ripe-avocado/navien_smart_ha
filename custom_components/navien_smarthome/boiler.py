@@ -14,6 +14,7 @@
 | `20` | NR-6x | ℃×2 (80 = 40℃) | dict |
 | `002` `003` | NR-35D · NR-40D | ℃ 그대로 | dict |
 | `011` | NRM-35D 각방 | ℃ 그대로(0.5칸 소수) | 방마다 하나씩 든 list |
+| `120` | NRM-65D 각방 Hi | ℃×2 | dict, 방은 `status.rooms` list |
 
 NR-6x 의 ×2 는 `actualInsideTemperature`(×10)와 대조해 확인했다 (#20: 45 ↔ 225).
 """
@@ -24,10 +25,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .const import BOILER_MGPP_MODELS, BOILER_MODE_NAMES, BOILER_MODE_OFF
+from .const import BOILER_HI_MODELS, BOILER_MGPP_MODELS, BOILER_MODE_NAMES, BOILER_MODE_OFF
 
-# 각방. 상태가 방 목록으로 온다 (`GetStatusDataNRM35`).
-MULTI_ROOM_MODELS = frozenset({"011"})
+# 각방. 상태가 방 목록으로 온다 (`GetStatusDataNRM35`, Hi 는 `status.rooms`).
+MULTI_ROOM_MODELS = frozenset({"011"}) | BOILER_HI_MODELS
 
 
 def _number(value: Any) -> float | None:
@@ -81,8 +82,12 @@ class BoilerDevice:
         return self.model_code in MULTI_ROOM_MODELS
 
     @property
+    def is_hi(self) -> bool:
+        return self.model_code in BOILER_HI_MODELS
+
+    @property
     def scale(self) -> float:
-        return 2.0 if self.is_mgpp else 1.0
+        return 2.0 if self.is_mgpp or self.is_hi else 1.0
 
     def celsius(self, value: Any) -> float | None:
         number = _number(value)
@@ -123,6 +128,22 @@ class BoilerDevice:
         """
         use = _number(self.feature.get(f"{name}Use"))
         return use is not None and use != 1
+
+    def is_level(self, name: str) -> bool:
+        """`{name}Use` 가 4 면 온도가 아니라 **단**(1 · 2 · 3)이다.
+
+        앱이 같은 값으로 온수를 단 화면으로 그린다 (`SmartTokControlFragment.isHotWaterDan`).
+        #35 NR-40D: `hotWaterTemperatureSettingUse` 4, 범위 1~3, 설정 3.
+        """
+        return _number(self.feature.get(f"{name}Use")) == 4
+
+    def level_range(self, name: str) -> tuple[int, int] | None:
+        """단 범위 (`hotWater` → `hotWaterTemperatureMin/Max`). 배율을 거치지 않는다 — 단은 온도가 아니다."""
+        low = _number(self.feature.get(f"{name}TemperatureMin"))
+        high = _number(self.feature.get(f"{name}TemperatureMax"))
+        if low is None or high is None or low >= high:
+            return None
+        return int(low), int(high)
 
     def temperature_range(self, name: str) -> tuple[float, float] | None:
         """`inside` · `ondol` · `hotWater` 의 설정 범위(℃)."""
@@ -209,10 +230,14 @@ class BoilerDevice:
             self.feature.update(feature)
 
         status = response.get("status")
+        rooms: Any = None
         if isinstance(status, dict):
             self.status.update(status)
+            rooms = status.get("rooms")  # 각방 Hi — 방 목록이 status 안에 든다
         elif isinstance(status, list):
-            for room in status:
+            rooms = status
+        if isinstance(rooms, list):
+            for room in rooms:
                 if not isinstance(room, dict):
                     continue
                 ordering = _number(room.get("ordering"))

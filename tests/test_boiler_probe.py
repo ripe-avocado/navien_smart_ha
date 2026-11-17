@@ -84,17 +84,17 @@ fake = SimpleNamespace(raw_devices=[
     boiler("20"),
     boiler("003", deviceSeq=8, deviceId="AABBCCDDEEFF0001"),
     boiler("011", deviceSeq=13, deviceId="AABBCCDDEEFF0002"),  # NRM-35D 각방 — NR35 봉투
-    boiler("120", deviceSeq=9),                        # 각방 Hi — 모양이 달라 안 묻는다
+    boiler("120", deviceSeq=9),                        # 각방 Hi — v0.28.0 부터 센서
     boiler("001", deviceSeq=10),                       # 도트 — 안 묻는다
     boiler("20", deviceSeq=11, deviceId="SHORT"),      # deviceId 를 못 쪼갠다
     {"deviceSeq": 12, "serviceCode": 200, "modelCode": "20", "deviceId": DEVICE_ID},
 ])
 targets = NavienSmartCoordinator.boiler_targets.fget(fake)
-r.ok([t["deviceSeq"] for t in targets] == [7, 8, 13], f"엔티티는 20 · 003 · 011 만: {[t['deviceSeq'] for t in targets]}")
+r.ok([t["deviceSeq"] for t in targets] == [7, 8, 13, 9], f"20 · 003 · 011 · 120 을 묻는다 (120 은 v0.28.0): {[t['deviceSeq'] for t in targets]}")
 fake.boiler_targets = targets
 asked = NavienSmartCoordinator.boiler_probe_targets.fget(fake)
 r.ok([t["deviceSeq"] for t in asked] == [7, 8, 13, 9],
-     f"묻기는 각방 Hi(120)까지 — 자료만 모은다 (v0.27.1, #34): {[t['deviceSeq'] for t in asked]}")
+     f"묻기만 하는 기종은 지금 없다 — 같은 목록: {[t['deviceSeq'] for t in asked]}")
 
 body, _ = body_for("120", coord_mod.BOILER_REQ_STATUS)
 p = body["payload"]
