@@ -113,9 +113,12 @@ class BoilerDevice:
         return int(round(celsius))
 
     def step_for(self, use: str) -> float:
-        """설정 간격. NR-6x 실내 0.5 · 그 밖 1, NR-35D 계열은 Use 2 면 0.5."""
-        if self.is_mgpp:
-            return 0.5 if use == "inside" else 1.0
+        """설정 간격. **기종이 아니라 `{use}Use` 로 가른다** — 2 면 0.5℃, 그 밖이면 1℃ (v0.28.1).
+
+        앱이 그렇게 한다: `ondolUse` 가 2 면 온돌 값을 소수로, 아니면 정수로 다룬다
+        (`SmartTokControlFragment`, 2.10.4). v0.28.0 까지는 NR-6x 온돌을 1℃ 로 고정해
+        두었는데, #29 가 NR-67D(`ondolUse` 2)에서 43.5℃ 설정이 그대로 동작함을 확인했다.
+        """
         return 0.5 if _number(self.feature.get(f"{use}Use")) == 2 else 1.0
 
     # -- 기능 --------------------------------------------------------------

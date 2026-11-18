@@ -44,12 +44,27 @@ r.ok(hi.temperature_range("hotWater") == (30.0, 60.0), "온수 범위 60~120 →
 r.ok(hi.room_count == 2, "방 개수는 기능 목록에서")
 
 names = [e._attr_name for e in boiler_sensors(None, hi)]
-r.ok(names == ["오류 코드", "방 1", "방 1 온도", "방 1 설정 온도", "방 2", "방 2 온도", "방 2 설정 온도",
-               "온수 설정 온도", "온수 온도"], f"센서: {names}")
-modes = [e for e in boiler_sensors(None, hi) if e._attr_name in ("방 1", "방 2")]
+r.ok(names == ["오류 코드", "거실", "거실 온도", "거실 설정 온도", "방1", "방1 온도", "방1 설정 온도",
+               "온수 설정 온도", "온수 온도"], f"센서 — 이름은 앱처럼 거실 · 방1 … (v0.28.1): {names}")
+modes = [e for e in boiler_sensors(None, hi) if e._attr_name in ("거실", "방1")]
 for e in modes:
     e.coordinator = SimpleNamespace(boilers={hi.device_id: hi})
-r.ok([e.native_value for e in modes] == ["켜짐", "꺼짐"], "방 모드: 1 만 꺼짐")
+r.ok([e.native_value for e in modes] == ["실내난방", "꺼짐"], "방 모드: 5 실내난방 · 1 꺼짐")
+r.section("외출인 방 (#34) · 안방 이름")
+
+away = BoilerDevice(raw("A1B2C3D4E5F60121", "120", "NRM-65D"))
+away.apply_response({"feature": {"roomCount": 2, "mainRoomconLocation": 2}})
+away.apply_response({"status": {"rooms": [{"ordering": 1, "operationMode": 5, "insideTemperatureSetting": 40},
+                                          {"ordering": 2, "operationMode": 4, "insideTemperatureSetting": 38}]}})
+built = {e._attr_name: e for e in boiler_sensors(None, away)}
+for e in built.values():
+    e.coordinator = SimpleNamespace(boilers={away.device_id: away})
+r.ok("안방" in built and "거실" not in built, "주 조절기가 안방(mainRoomconLocation 2)이면 1번은 「안방」")
+r.ok(built["방1"].native_value == "외출", "4 는 외출")
+r.ok(built["방1 설정 온도"].native_value is None, "외출인 방은 설정 온도를 비운다 (앱: 「외출」만)")
+r.ok(built["안방 설정 온도"].native_value == 20.0, "실내난방인 방은 그대로 20℃")
+r.ok(built["방1"]._attr_unique_id.endswith("_room2_mode"), "unique_id 는 그대로 — 기존 엔티티가 이어진다")
+
 hot = next(e for e in boiler_sensors(None, hi) if e._attr_name == "온수 설정 온도")
 hot.coordinator = SimpleNamespace(boilers={hi.device_id: hi})
 r.ok(hot.native_value == 45.0, "온수 설정 온도 센서 45℃")

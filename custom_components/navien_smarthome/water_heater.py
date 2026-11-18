@@ -17,7 +17,7 @@ from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
-from homeassistant.const import PRECISION_WHOLE, UnitOfTemperature
+from homeassistant.const import PRECISION_HALVES, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -72,6 +72,8 @@ class BoilerWaterHeater(BoilerEntity, WaterHeaterEntity):
         # 안 정하면 화면이 ℃ 에서 0.5 칸으로 움직인다. 온수는 앱 · 실내조절기 모두
         # 1℃ 칸이라 0.5 를 고르면 보일러가 무시한다 (#24, NR-40D).
         self._attr_target_temperature_step = boiler.step_for("hotWaterTemperatureSetting")
+        if self._attr_target_temperature_step == 0.5:
+            self._attr_precision = PRECISION_HALVES
 
     @property
     def current_temperature(self) -> float | None:

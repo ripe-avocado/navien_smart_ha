@@ -20,6 +20,7 @@ from .boiler import BoilerDevice
 from .const import (
     AIRONE_INFERRED_UNITS,
     AIRONE_SENSOR_KINDS,
+    BOILER_MODE_INSIDE,
     LEGACY_EXTRA_FIELDS,
     LEGACY_VALUE_TABLES,
 )
@@ -533,9 +534,30 @@ class BoilerLevelSensor(BoilerEntity, SensorEntity):
         return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def room_name(boiler: BoilerDevice, room: int) -> str:
+    """앱과 같은 방 이름 (v0.28.1, #34). 앱도 사용자가 정한 이름이 아니라 순서로 부른다.
+
+    `HiDeviceListAdapter.nameText`: 1 번은 「거실」(각방 Hi 이고 주 조절기가 안방
+    — `mainRoomconLocation` 2 — 이면 「안방」), 2 번부터 「방1」 · 「방2」 …
+    """
+    if room == 1:
+        main = boiler.feature.get("mainRoomconLocation")
+        return "안방" if boiler.is_hi and main == 2 else "거실"
+    return f"방{room - 1}"
+
+
+def room_mode(boiler: BoilerDevice | None, room: int) -> int | None:
+    mode = None if boiler is None else (boiler.rooms.get(room) or {}).get("operationMode")
+    if isinstance(mode, bool) or not isinstance(mode, (int, float)):
+        return None
+    return int(mode)
+
+
 class BoilerRoomModeSensor(BoilerEntity, SensorEntity):
-    """각방의 방 하나. **1 만 꺼짐으로 확정**이다 (앱 `hiStatusInt` 가 1 이 아니면
-    켜진 방으로 센다). 나머지 값의 뜻은 확인하지 못해 「켜짐」으로만 보인다.
+    """각방의 방 하나의 운전 모드 (v0.28.1 부터 이름으로).
+
+    값은 보일러 운전 모드와 같은 번호다 — 앱 `HiDeviceListAdapter.statusText`:
+    1 전원 OFF · 4 외출 · 5 실내난방 · 6 온돌난방 · 7 반복예약 · 8 24시간 예약 · 10 온수전용.
     """
 
     _attr_icon = "mdi:home-thermometer"
@@ -543,16 +565,12 @@ class BoilerRoomModeSensor(BoilerEntity, SensorEntity):
     def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice, room: int) -> None:
         super().__init__(coordinator, boiler)
         self._room = room
-        self._attr_name = f"방 {room}"
+        self._attr_name = room_name(boiler, room)
         self._attr_unique_id = f"{boiler.device_id}_room{room}_mode"
 
     @property
     def native_value(self) -> str | None:
-        boiler = self.boiler
-        mode = None if boiler is None else (boiler.rooms.get(self._room) or {}).get("operationMode")
-        if not isinstance(mode, (int, float)):
-            return None
-        return "꺼짐" if mode == 1 else "켜짐"
+        return BoilerDevice.mode_name(room_mode(self.boiler, self._room))
 
 
 class BoilerRoomTemperatureSensor(BoilerEntity, SensorEntity):
@@ -571,7 +589,7 @@ class BoilerRoomTemperatureSensor(BoilerEntity, SensorEntity):
         super().__init__(coordinator, boiler)
         self._room = room
         self._key = key
-        self._attr_name = f"방 {room} {name}" if room_label else name
+        self._attr_name = f"{room_name(boiler, room)} {name}" if room_label else name
         self._attr_unique_id = f"{boiler.device_id}_room{room}_{key}"
         if key == "insideTemperature":
             self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -579,7 +597,12 @@ class BoilerRoomTemperatureSensor(BoilerEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         boiler = self.boiler
-        return None if boiler is None else boiler.room_value(self._room, self._key)
+        if boiler is None:
+            return None
+        if self._key == "insideTemperatureSetting" and room_mode(boiler, self._room) != BOILER_MODE_INSIDE:
+            # 실내난방일 때만 뜻이 있다. 외출 · 꺼짐인 방은 앱도 설정 온도를 안 보인다 (#34)
+            return None
+        return boiler.room_value(self._room, self._key)
 
 
 class BoilerOperatingStateSensor(BoilerEntity, SensorEntity):

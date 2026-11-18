@@ -75,6 +75,7 @@ stub(
     CONCENTRATION_MICROGRAMS_PER_CUBIC_METER="µg/m³",
     UnitOfTemperature=enum(CELSIUS="°C", FAHRENHEIT="°F"),
     PRECISION_WHOLE=1.0,
+    PRECISION_HALVES=0.5,
     UnitOfTime=enum(MINUTES="min", SECONDS="s"),
 )
 stub(

@@ -276,7 +276,8 @@ def thermostat(boiler: BoilerDevice) -> BoilerThermostat:
 t = thermostat(b20)
 r.ok(t._presets == ["온돌난방"], f"지원하는 모드만 프리셋으로: {t._presets}")
 r.ok(t.target_temperature == 40.0 and t.current_temperature == 22.5, "온돌 40℃ · 실내 22.5℃")
-r.ok((t.min_temp, t.max_temp) == (30.0, 65.0) and t.target_temperature_step == 1.0, "온돌 범위·간격")
+r.ok((t.min_temp, t.max_temp) == (30.0, 65.0) and t.target_temperature_step == 0.5,
+     "온돌 범위 · 간격 0.5℃ — ondolUse 2 (앱과 같다, #29 v0.28.1)")
 r.ok(t.preset_mode == "온돌난방" and t.hvac_mode == "heat", "지금 모드")
 calls.clear()
 asyncio.run(t.async_set_temperature(temperature=41))
@@ -313,8 +314,8 @@ r.ok(b40.encode_for("inside", 24) == 24 and isinstance(b40.encode_for("inside", 
 half = ready(ID_40, "002", "NR-35D", {**FEATURE_40, "insideUse": 2}, STATUS_40)
 r.ok(half.encode_for("inside", 22.5) == 22.5 and half.step_for("inside") == 0.5,
      "Use 2 면 0.5℃ 소수 (앱의 boxFloat(value / 2) 갈래)")
-r.ok(b40.step_for("inside") == 1.0 and b20.step_for("inside") == 0.5 and b20.step_for("ondol") == 1.0,
-     "간격 — NR-40D 1℃ · NR-6x 실내 0.5 · 온돌 1")
+r.ok(b40.step_for("inside") == 1.0 and b20.step_for("ondol") == 0.5 and b40.step_for("ondol") == 1.0,
+     "간격은 기종이 아니라 Use 로 — Use 2 면 0.5℃, 3 이면 1℃ (v0.28.1)")
 
 
 def thermostat_exp(boiler: BoilerDevice) -> BoilerThermostat:
@@ -357,7 +358,8 @@ heater = BoilerWaterHeater(c, b20)
 heater.coordinator = c
 r.ok(heater.target_temperature == 41.0 and heater.current_temperature == 35.5, "설정 82 → 41℃ · 지금 71 → 35.5℃")
 r.ok((heater._attr_min_temp, heater._attr_max_temp) == (30.0, 60.0), "범위 30~60℃")
-r.ok(heater._attr_target_temperature_step == 1.0, "NR-6x 온수도 1℃ 칸")
+r.ok(heater._attr_target_temperature_step == 0.5 and heater._attr_precision == 0.5,
+     "NR-6x 온수는 hotWaterTemperatureSettingUse 2 라 0.5℃ 칸 (앱과 같다)")
 calls.clear()
 asyncio.run(heater.async_set_temperature(temperature=42))
 r.ok(calls[-1][1:] == ("hotwater-temperature", [84.0]), f"42℃ → 84.0 (#20 실기기와 같은 값): {calls[-1]}")
@@ -374,15 +376,16 @@ r.ok(names(b20) == ["운전 모드", "실내 온도", "오류 코드", "온돌 �
      f"NR-6x (실내난방 없음): {names(b20)}")
 r.ok(names(b40) == ["운전 모드", "실내 온도", "오류 코드", "실내 설정 온도", "온돌 설정 온도", "온수 설정 온도"],
      f"NR-40D (현재 온수 온도 없음): {names(b40)}")
-r.ok(names(b35) == ["방 1", "방 1 온도", "방 1 설정 온도", "방 2", "방 2 온도", "방 2 설정 온도", "온수 설정 온도"],
+r.ok(names(b35) == ["거실", "거실 온도", "거실 설정 온도", "방1", "방1 온도", "방1 설정 온도", "온수 설정 온도"],
      f"NRM-35D 방별: {names(b35)}")
 
 sensors = boiler_sensors(None, b35)
 holder = SimpleNamespace(boilers={ID_35: b35})
 for sensor in sensors:
     sensor.coordinator = holder
-r.ok(sensors[0].native_value == "켜짐" and sensors[3].native_value == "꺼짐", "방 모드는 1 만 꺼짐")
-r.ok(sensors[2].native_value == 24.5, "방 1 설정 24.5℃")
+r.ok(sensors[0].native_value == "온수전용" and sensors[3].native_value == "꺼짐",
+     f"방 모드를 이름으로 — 10 온수전용 · 1 꺼짐 (앱 statusText): {sensors[0].native_value}, {sensors[3].native_value}")
+r.ok(sensors[2].native_value is None, "실내난방이 아닌 방(온수전용)은 설정 온도를 비운다 — 앱도 안 보인다")
 mode_sensor = boiler_sensors(None, b20)[0]
 mode_sensor.coordinator = SimpleNamespace(boilers={ID_20: b20})
 r.ok(mode_sensor.native_value == "온돌난방", "운전 모드 6 = 온돌난방")
