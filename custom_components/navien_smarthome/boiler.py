@@ -64,8 +64,15 @@ class BoilerDevice:
 
     @property
     def nickname(self) -> str:
+        """별칭. 보일러는 `{"mainItem": "나비엔보일러"}` 처럼 **묶음으로** 온다 (v0.28.2, #34).
+
+        통째로 글자로 바꿔 기기 이름이 `{'mainItem': …}` 로 보였다.
+        """
         properties = self.raw.get("Properties") or {}
-        return str(properties.get("nickName") or self.model_name)
+        name = properties.get("nickName")
+        if isinstance(name, dict):
+            name = name.get("mainItem")
+        return str(name or self.model_name)
 
     @property
     def available(self) -> bool:

@@ -170,6 +170,7 @@ BOILER_MODE_OFF: Final = 1
 BOILER_MODE_GOOUT: Final = 4
 BOILER_MODE_INSIDE: Final = 5
 BOILER_MODE_ONDOL: Final = 6
+BOILER_MODE_HOTWATER_ONLY: Final = 10
 BOILER_MODE_NAMES: Final = {
     1: "꺼짐",
     4: "외출",
@@ -188,6 +189,9 @@ BOILER_CMD_GOOUT: Final = ("goout-on", 33554436)
 BOILER_CMD_INSIDE: Final = ("inside-heat", 33554437)
 BOILER_CMD_ONDOL: Final = ("ondol-heat", 33554438)
 BOILER_CMD_HOTWATER: Final = ("hotwater-temperature", 33554443)
+# 온수전용 (v0.28.2, #35). 앱이 지금 온수 설정값을 param 에 싣는다 — Use 2 면 소수, 아니면 정수
+# (`SmartTokControlFragment` 3711, `ControlRequestMode.ONLY_HOTWATER`).
+BOILER_CMD_HOTWATER_ONLY: Final = ("only-hotwater", 33554442)
 
 # --- 에어원 (환기청정) ----------------------------------------------------
 #

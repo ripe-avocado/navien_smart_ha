@@ -31,11 +31,13 @@ from . import NavienSmartConfigEntry
 from .boiler import BoilerDevice
 from .const import (
     BOILER_CMD_GOOUT,
+    BOILER_CMD_HOTWATER_ONLY,
     BOILER_CMD_INSIDE,
     BOILER_CMD_ONDOL,
     BOILER_CMD_POWER_OFF,
     BOILER_CMD_POWER_ON,
     BOILER_MODE_GOOUT,
+    BOILER_MODE_HOTWATER_ONLY,
     BOILER_MODE_INSIDE,
     BOILER_MODE_ONDOL,
     MODE_HEAT,
@@ -280,6 +282,9 @@ _BOILER_PRESETS = (
     ("실내난방", "inside", BOILER_MODE_INSIDE),
     ("온돌난방", "ondol", BOILER_MODE_ONDOL),
     ("외출", "goout", BOILER_MODE_GOOUT),
+    # NR-35D · NR-40D 만 (v0.28.2, #35). NR-6x 는 운전 모드 4 가 외출 · 온수전용을 함께
+    # 뜻해 갈래가 달라 열지 않는다 (`_presets_for`).
+    ("온수전용", "hotWater", BOILER_MODE_HOTWATER_ONLY),
 )
 
 
@@ -300,7 +305,12 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
     def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice) -> None:
         super().__init__(coordinator, boiler)
         self._attr_unique_id = f"{boiler.device_id}_boiler_thermostat"
-        self._presets = [name for name, use, _ in _BOILER_PRESETS if boiler.supports(use)]
+        self._presets = [
+            name
+            for name, use, mode in _BOILER_PRESETS
+            if boiler.supports(use)
+            and not (mode == BOILER_MODE_HOTWATER_ONLY and boiler.is_mgpp)
+        ]
         features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.TURN_ON
@@ -434,6 +444,15 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
             raise HomeAssistantError(f"지원하지 않는 모드입니다: {preset_mode}")
         if preset_mode == "외출":
             await self.coordinator.async_boiler_control(boiler, BOILER_CMD_GOOUT, [])
+            return
+        if preset_mode == "온수전용":
+            # 앱처럼 지금 온수 설정값을 싣는다. NR-35D 계열은 배율이 없어 받은 값 그대로다
+            # — Use 2 면 소수, 아니면 정수 (단 보일러는 단 값).
+            raw = boiler.status.get("hotWaterTemperatureSetting")
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise HomeAssistantError("온수 설정값을 아직 받지 못했습니다.")
+            param = float(raw) if boiler.step_for("hotWaterTemperatureSetting") == 0.5 else int(raw)
+            await self.coordinator.async_boiler_control(boiler, BOILER_CMD_HOTWATER_ONLY, [param])
             return
         # 모드를 바꿀 때는 그 모드의 **지금 설정값**을 싣는다. 기종마다 싣는 모양이
         # 달라(NR-6x ×2 소수 · NR-40D ℃ 정수) ℃ 로 읽어 다시 바꾼다.
