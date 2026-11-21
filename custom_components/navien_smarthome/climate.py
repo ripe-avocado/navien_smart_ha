@@ -39,6 +39,7 @@ from .const import (
     BOILER_MODE_GOOUT,
     BOILER_MODE_HOTWATER_ONLY,
     BOILER_MODE_INSIDE,
+    BOILER_MODE_OFF,
     BOILER_MODE_ONDOL,
     MODE_HEAT,
     ZONE_NAMES,
@@ -46,6 +47,7 @@ from .const import (
 from .coordinator import NavienSmartCoordinator
 from .entity import BoilerEntity, NavienSmartEntity, async_track_boilers
 from .models import NavienDevice
+from .sensor import room_name
 
 
 async def async_setup_entry(
@@ -67,7 +69,14 @@ async def async_setup_entry(
         hass,
         entry,
         coordinator,
-        lambda b: [BoilerThermostat(coordinator, b)] if coordinator.boiler_controllable(b) else [],
+        lambda b: (
+            []
+            if not coordinator.boiler_controllable(b)
+            # 각방 Hi 는 방마다 온도조절기 (v0.29.0). 보일러 전체 상태(`status.operationMode`)가 없다.
+            else [BoilerRoomThermostat(coordinator, b, room) for room in range(1, b.room_count + 1)]
+            if b.is_hi
+            else [BoilerThermostat(coordinator, b)]
+        ),
         async_add_entities,
     )
 
@@ -467,3 +476,120 @@ class BoilerThermostat(BoilerEntity, ClimateEntity):
         await self.coordinator.async_boiler_control(
             boiler, command, [boiler.encode_for(kind, current)]
         )
+
+
+class BoilerRoomThermostat(BoilerEntity, ClimateEntity):
+    """각방 Hi 의 방 하나 (v0.29.0 실험, #34).
+
+    앱과 같은 명령에 **방 고르기 값**(`roomUseSetting`, 1번 방 `10000000`)을 싣는다
+    (`SmartTokControlFragment` — 전원 · 실내난방 · 외출이 모두 `hiDevicePosition` 을 싣는다).
+    값은 NR-6x 처럼 ℃×2 소수다. 실기기 확인 전이라 실험 설정을 켜야 생긴다.
+    """
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+
+    def __init__(self, coordinator: NavienSmartCoordinator, boiler: BoilerDevice, room: int) -> None:
+        super().__init__(coordinator, boiler)
+        self._room = room
+        self._bits = BoilerDevice.room_bits(room)
+        self._attr_name = f"{room_name(boiler, room)} 난방"
+        self._attr_unique_id = f"{boiler.device_id}_room{room}_thermostat"
+        self._presets = [name for name, use in (("실내난방", "inside"), ("외출", "goout")) if boiler.supports(use)]
+        features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
+        if self._presets:
+            features |= ClimateEntityFeature.PRESET_MODE
+            self._attr_preset_modes = list(self._presets)
+        self._attr_supported_features = features
+        found = boiler.temperature_range("inside")
+        self._attr_min_temp, self._attr_max_temp = found or (10.0, 40.0)
+        self._attr_target_temperature_step = boiler.step_for("inside")
+
+    def _mode(self) -> int | None:
+        boiler = self.boiler
+        return None if boiler is None else boiler.room_mode(self._room)
+
+    @property
+    def available(self) -> bool:
+        boiler = self.boiler
+        return super().available and boiler is not None and self._room in boiler.rooms
+
+    @property
+    def current_temperature(self) -> float | None:
+        boiler = self.boiler
+        return None if boiler is None else boiler.room_value(self._room, "insideTemperature")
+
+    @property
+    def target_temperature(self) -> float | None:
+        boiler = self.boiler
+        if boiler is None or self._mode() != BOILER_MODE_INSIDE:
+            return None  # 외출 · 꺼짐이면 앱도 온도를 안 보인다
+        return boiler.room_value(self._room, "insideTemperatureSetting")
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        mode = self._mode()
+        if mode is None:
+            return None
+        return HVACMode.OFF if mode == BOILER_MODE_OFF else HVACMode.HEAT
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        mode = self._mode()
+        if mode is None:
+            return None
+        if mode == BOILER_MODE_OFF:
+            return HVACAction.OFF
+        return HVACAction.HEATING if mode == BOILER_MODE_INSIDE else HVACAction.IDLE
+
+    @property
+    def preset_mode(self) -> str | None:
+        mode = self._mode()
+        name = {BOILER_MODE_INSIDE: "실내난방", BOILER_MODE_GOOUT: "외출"}.get(mode)
+        return name if name in self._presets else None
+
+    async def _send(self, command: tuple[str, int], param: list[Any]) -> None:
+        boiler = self.boiler
+        if boiler is None or self._room not in boiler.rooms:
+            raise HomeAssistantError("이 방의 상태를 아직 받지 못했습니다.")
+        await self.coordinator.async_boiler_control(boiler, command, param, room=self._bits)
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        temperature = kwargs.get("temperature")
+        hvac_mode = kwargs.get(ATTR_HVAC_MODE)
+        if hvac_mode == HVACMode.OFF:
+            await self.async_set_hvac_mode(HVACMode.OFF)
+            return
+        if temperature is None:
+            return
+        boiler = self.boiler
+        if boiler is None:
+            return
+        # 실내난방 명령에 온도를 실으면 그 방이 실내난방으로 그 온도가 된다 (앱 슬라이더와 같다)
+        await self._send(BOILER_CMD_INSIDE, [boiler.encode_for("inside", float(temperature))])
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        command = BOILER_CMD_POWER_OFF if hvac_mode == HVACMode.OFF else BOILER_CMD_POWER_ON
+        await self._send(command, [])
+
+    async def async_turn_on(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def async_turn_off(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.OFF)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        if preset_mode not in self._presets:
+            raise HomeAssistantError(f"지원하지 않는 모드입니다: {preset_mode}")
+        if preset_mode == "외출":
+            await self._send(BOILER_CMD_GOOUT, [])
+            return
+        boiler = self.boiler
+        current = None if boiler is None else boiler.room_value(self._room, "insideTemperatureSetting")
+        if current is None:
+            raise HomeAssistantError("이 방의 설정 온도를 아직 받지 못했습니다.")
+        await self._send(BOILER_CMD_INSIDE, [boiler.encode_for("inside", current)])

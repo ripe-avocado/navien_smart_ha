@@ -181,9 +181,13 @@ r.section("제어 — 설정과 기종")
 calls: list = []
 
 
+rooms: list = []
+
+
 class _Api:
-    async def async_boiler_request(self, home_seq, device, client_id, request, mode=None, param=None):
+    async def async_boiler_request(self, home_seq, device, client_id, request, mode=None, param=None, room=None):
         calls.append((request, mode, param))
+        rooms.append(room)
         return {}
 
 
@@ -197,8 +201,8 @@ def control_coord(enabled: bool, boilers: dict, experimental: bool = False) -> S
     c.boiler_control_enabled = NavienSmartCoordinator.boiler_control_enabled.fget(c)
     c.boiler_experimental_enabled = NavienSmartCoordinator.boiler_experimental_enabled.fget(c)
     c.boiler_controllable = lambda boiler: NavienSmartCoordinator.boiler_controllable(c, boiler)
-    c.async_boiler_control = lambda boiler, command, param: NavienSmartCoordinator.async_boiler_control(
-        c, boiler, command, param
+    c.async_boiler_control = lambda boiler, command, param, room=None: NavienSmartCoordinator.async_boiler_control(
+        c, boiler, command, param, room
     )
     return c
 

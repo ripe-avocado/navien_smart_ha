@@ -155,7 +155,8 @@ BOILER_NR40D_MODEL: Final = "003"
 # 없고 온도를 ℃ 로 싣는다(`BoilerDevice.encode_for`). NR-40D 는 실기기로 확인돼 v0.27.0 에
 # 기본 제어로 옮겼고, NR-35D 는 아직 확인한 사람이 없다.
 # 각방(011)은 방 비트문자열이 붙어 아직 열지 않는다.
-BOILER_EXPERIMENTAL_MODELS: Final = frozenset({"002"})
+# 각방 Hi(120) 방별 제어도 실험으로 연다 (v0.29.0, #34) — 앱 코드로 확인, 실기기 확인 전.
+BOILER_EXPERIMENTAL_MODELS: Final = frozenset({"002", "120"})
 CONF_BOILER_CONTROL_EXPERIMENTAL: Final = "boiler_control_experimental"
 # 이 시간 동안 보일러에게서 아무 메시지도 없으면 상태를 한 번 묻는다. 상태가
 # 바뀌면 보일러가 알아서 보내므로(#20) 평소에는 묻지 않는다. 매트 폴링 주기와 같다.

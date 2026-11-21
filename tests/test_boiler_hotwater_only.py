@@ -34,7 +34,7 @@ r.ok(BoilerDevice(raw("A1B2C3D4E5F60004", "003", "NR-40D")).nickname == "NR-40D"
 calls = []
 
 
-async def control(boiler, command, param):
+async def control(boiler, command, param, room=None):
     calls.append((command, param))
 
 

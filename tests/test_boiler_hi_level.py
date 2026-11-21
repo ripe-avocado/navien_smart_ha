@@ -88,7 +88,7 @@ r.ok(level_sensor._attr_unique_id.endswith("_level"), "온도 센서와 다른 u
 calls = []
 
 
-async def control(boiler, command, param):
+async def control(boiler, command, param, room=None):
     calls.append((command, param))
 
 coord = SimpleNamespace(boilers={nr40.device_id: nr40}, async_boiler_control=control)

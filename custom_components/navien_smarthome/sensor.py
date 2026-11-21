@@ -547,10 +547,7 @@ def room_name(boiler: BoilerDevice, room: int) -> str:
 
 
 def room_mode(boiler: BoilerDevice | None, room: int) -> int | None:
-    mode = None if boiler is None else (boiler.rooms.get(room) or {}).get("operationMode")
-    if isinstance(mode, bool) or not isinstance(mode, (int, float)):
-        return None
-    return int(mode)
+    return None if boiler is None else boiler.room_mode(room)
 
 
 class BoilerRoomModeSensor(BoilerEntity, SensorEntity):

@@ -520,6 +520,7 @@ class NavienSmartApi:
         request: tuple[str, str, int],
         mode: str | None = None,
         param: list[Any] | None = None,
+        room: str | None = None,
     ) -> dict[str, Any]:
         """보일러 요청을 중계한다. 읽기는 `mode` 없이, 제어는 `mode`·`param` 을 싣는다.
 
@@ -557,6 +558,10 @@ class NavienSmartApi:
         if code in BOILER_MGPP_ENVELOPE_MODELS:
             payload = {"protocolVersion": 1, **payload}
             inner.update(paramStr="", command=command, deviceType=int(code))
+            if room is not None:
+                # 각방 Hi 의 방 고르기 — 8자리 비트문자열, 1번 방 `10000000` (v0.29.0, #34).
+                # 앱은 `InternalControlRequest.roomUseSetting` 에 싣는다.
+                inner["roomUseSetting"] = room
 
         body = {"serviceCode": device["serviceCode"], "payload": payload}
         _LOGGER.debug("보일러 전송 deviceSeq=%s request=%s", device["deviceSeq"], request_name)

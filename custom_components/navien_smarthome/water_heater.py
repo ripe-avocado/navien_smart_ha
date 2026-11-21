@@ -95,4 +95,6 @@ class BoilerWaterHeater(BoilerEntity, WaterHeaterEntity):
             boiler,
             BOILER_CMD_HOTWATER,
             [boiler.encode_for("hotWaterTemperatureSetting", float(temperature))],
+            # 각방 Hi 는 온수도 1번 방 값을 싣는다 (앱이 "120" 이면 "10000000" 으로 고정)
+            room=BoilerDevice.room_bits(1) if boiler.is_hi else None,
         )

@@ -810,7 +810,11 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
         return False
 
     async def async_boiler_control(
-        self, boiler: BoilerDevice, command: tuple[str, int], param: list[Any]
+        self,
+        boiler: BoilerDevice,
+        command: tuple[str, int],
+        param: list[Any],
+        room: str | None = None,
     ) -> None:
         """명령 하나를 보낸다. 결과는 보일러가 보내는 상태 방송으로 돌아온다."""
         if not self.boiler_controllable(boiler):
@@ -818,9 +822,10 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 "이 보일러는 제어가 꺼져 있습니다. 통합 설정의 '구성' 에서 켜 주세요."
             )
         mode, code = command
-        self.boiler_commands.append(
-            {"at": round(time.monotonic(), 1), "mode": mode, "param": list(param)}
-        )
+        entry: dict[str, Any] = {"at": round(time.monotonic(), 1), "mode": mode, "param": list(param)}
+        if room is not None:
+            entry["room"] = room
+        self.boiler_commands.append(entry)
         del self.boiler_commands[:-BOILER_KEEP_MESSAGES]
         try:
             await self.api.async_boiler_request(
@@ -830,6 +835,7 @@ class NavienSmartCoordinator(DataUpdateCoordinator[dict[str, NavienDevice]]):
                 ("control", "res", code),
                 mode=mode,
                 param=param,
+                room=room,
             )
         except NavienSmartError as err:
             raise HomeAssistantError(f"보일러에 명령을 보내지 못했습니다: {err}") from err

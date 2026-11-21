@@ -113,8 +113,8 @@ class BoilerDevice:
         `{use}Use` 가 2 면 0.5℃ 칸이라 ℃ 를 **소수**로(`boxFloat(value / 2)`), 그 밖이면
         ℃ 를 **정수**로(`boxInt(value)`) 싣는다. NR-40D 는 Use 3 이라 정수다 (26℃ → `26`).
         """
-        if self.is_mgpp:
-            return self.encode(celsius)
+        if self.is_mgpp or self.is_hi:
+            return self.encode(celsius)  # 각방 Hi 도 ℃×2 소수 (앱: "20" · "120" 같은 갈래)
         if _number(self.feature.get(f"{use}Use")) == 2:
             return round(celsius * 2) / 2
         return int(round(celsius))
@@ -216,6 +216,15 @@ class BoilerDevice:
         if burning is None:
             return None
         return "연소" if burning else "대기"
+
+    @staticmethod
+    def room_bits(ordering: int) -> str:
+        """각방 Hi 의 방 고르기 값. 1번 방 `10000000`, 2번 방 `01000000` … (앱 `hiPosition`)."""
+        return "".join("1" if i == ordering else "0" for i in range(1, 9))
+
+    def room_mode(self, ordering: int) -> int | None:
+        mode = _number((self.rooms.get(ordering) or {}).get("operationMode"))
+        return None if mode is None else int(mode)
 
     def room_value(self, ordering: int, key: str) -> float | None:
         return self.celsius((self.rooms.get(ordering) or {}).get(key))
